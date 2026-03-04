@@ -1,0 +1,409 @@
+---
+title: Custom Tools
+description: Create custom tools to extend agent capabilities
+---
+
+## Overview
+
+Custom tools allow you to extend Codebuff agents with new capabilities beyond the built-in tools. Use `getCustomToolDefinition()` to create type-safe tool definitions with Zod schema validation.
+
+## getCustomToolDefinition()
+
+Creates a custom tool definition that can be passed to `CodebuffClient`.
+
+```typescript
+function getCustomToolDefinition<TN, Args, Input>({
+  toolName,
+  inputSchema,
+  description,
+  endsAgentStep,
+  exampleInputs,
+  execute
+}): CustomToolDefinition<TN, Args, Input>
+```
+
+### Parameters
+
+<ParamField path="toolName" type="string" required>
+  The name of the tool. Must be unique and cannot conflict with built-in tool names.
+  
+  Use descriptive names like `'send_email'`, `'query_database'`, or `'fetch_weather'`.
+  
+  **Note:** Tool names cannot be the same as built-in tools (`read_files`, `write_file`, etc.). Use `overrideTools` instead to customize built-in tools.
+</ParamField>
+
+<ParamField path="inputSchema" type="z.ZodType<Args, Input>" required>
+  A Zod 4 schema describing the tool's input parameters.
+  
+  The schema defines what parameters the agent must provide when calling the tool. It's converted to JSON Schema for the LLM.
+  
+  Example:
+  ```typescript
+  import { z } from 'zod/v4'
+  
+  const schema = z.object({
+    to: z.string().email(),
+    subject: z.string(),
+    body: z.string()
+  })
+  ```
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  A description of the tool to be passed to the LLM.
+  
+  Should describe:
+  - What the tool does
+  - When to use it
+  - Any important constraints or side effects
+  
+  Example:
+  ```typescript
+  description: `Send an email to the specified recipient.
+  
+  Use this tool when the user asks to send notifications or communicate via email.
+  The email will be sent immediately and cannot be undone.`
+  ```
+</ParamField>
+
+<ParamField path="endsAgentStep" type="boolean">
+  Whether the tool ends the agent step. Defaults to `true`.
+  
+  If `true`, the tool acts as a "stop sequence" - the agent must wait for tool results before continuing and cannot call other tools in the same message.
+  
+  Set to `false` for tools that provide information but don't require the agent to wait (rare).
+</ParamField>
+
+<ParamField path="exampleInputs" type="Input[]">
+  Array of example inputs for the tool. Defaults to `[]`.
+  
+  Provides the LLM with examples of valid tool calls. Helps improve tool usage accuracy.
+  
+  Example:
+  ```typescript
+  exampleInputs: [
+    { to: 'user@example.com', subject: 'Hello', body: 'Test message' },
+    { to: 'admin@example.com', subject: 'Alert', body: 'System notification' }
+  ]
+  ```
+</ParamField>
+
+<ParamField path="execute" type="(params: Args) => Promise<ToolResultOutput[]> | ToolResultOutput[]" required>
+  Function that executes when the tool is called.
+  
+  Receives validated parameters (matching the `inputSchema`) and must return an array of `ToolResultOutput` objects.
+  
+  Can be sync or async.
+  
+  **Return type:**
+  ```typescript
+  type ToolResultOutput = 
+    | { type: 'text', text: string }
+    | { type: 'json', value: any }
+    | { type: 'image', image: string, mediaType: string }
+  ```
+  
+  Example:
+  ```typescript
+  execute: async (params) => {
+    await sendEmail(params.to, params.subject, params.body)
+    return [{
+      type: 'json',
+      value: { success: true, messageId: '12345' }
+    }]
+  }
+  ```
+</ParamField>
+
+### Returns
+
+<ResponseField name="CustomToolDefinition" type="CustomToolDefinition<TN, Args, Input>">
+  A custom tool definition object that can be passed to `CodebuffClient`.
+  
+  ```typescript
+  type CustomToolDefinition<N, Args, Input> = {
+    toolName: N
+    inputSchema: z.ZodType<Args, Input>
+    description: string
+    endsAgentStep: boolean
+    exampleInputs: Input[]
+    execute: (params: Args) => Promise<ToolResultOutput[]>
+  }
+  ```
+</ResponseField>
+
+## Complete Example
+
+```typescript
+import { z } from 'zod/v4'
+import { getCustomToolDefinition, CodebuffClient } from '@codebuff/sdk'
+import nodemailer from 'nodemailer'
+
+// Create email transporter
+const transporter = nodemailer.createTransport({
+  host: 'smtp.example.com',
+  port: 587,
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
+  }
+})
+
+// Define the custom tool
+const sendEmailTool = getCustomToolDefinition({
+  toolName: 'send_email',
+  
+  inputSchema: z.object({
+    to: z.string().email().describe('Recipient email address'),
+    subject: z.string().describe('Email subject line'),
+    body: z.string().describe('Email body content'),
+    cc: z.array(z.string().email()).optional().describe('CC recipients')
+  }),
+  
+  description: `Send an email to the specified recipient.
+  
+  Use this when:
+  - User requests to send an email or notification
+  - Need to alert someone about an issue
+  - Sharing results or reports via email
+  
+  The email will be sent immediately.`,
+  
+  endsAgentStep: true,
+  
+  exampleInputs: [
+    {
+      to: 'user@example.com',
+      subject: 'Build Failed',
+      body: 'The latest build has failed. Please check the logs.'
+    },
+    {
+      to: 'team@example.com',
+      subject: 'Weekly Report',
+      body: 'Attached is the weekly performance report.',
+      cc: ['manager@example.com']
+    }
+  ],
+  
+  execute: async (params) => {
+    try {
+      const info = await transporter.sendMail({
+        from: process.env.EMAIL_FROM,
+        to: params.to,
+        cc: params.cc,
+        subject: params.subject,
+        text: params.body
+      })
+      
+      return [{
+        type: 'json',
+        value: {
+          success: true,
+          messageId: info.messageId,
+          message: `Email sent successfully to ${params.to}`
+        }
+      }]
+    } catch (error) {
+      return [{
+        type: 'json',
+        value: {
+          success: false,
+          errorMessage: error instanceof Error ? error.message : 'Unknown error'
+        }
+      }]
+    }
+  }
+})
+
+// Use the custom tool with CodebuffClient
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY,
+  customToolDefinitions: [sendEmailTool]
+})
+
+// Agent can now use the send_email tool
+const result = await client.run({
+  agent: 'base',
+  prompt: 'Send an email to team@example.com about the deployment success'
+})
+```
+
+## Advanced Example: Database Query Tool
+
+```typescript
+import { z } from 'zod/v4'
+import { getCustomToolDefinition } from '@codebuff/sdk'
+import { pool } from './db' // Your database connection
+
+const queryDatabaseTool = getCustomToolDefinition({
+  toolName: 'query_database',
+  
+  inputSchema: z.object({
+    query: z.string().describe('SQL query to execute (SELECT only)'),
+    limit: z.number().min(1).max(1000).default(100).describe('Maximum rows to return')
+  }),
+  
+  description: `Execute a read-only SQL query against the database.
+  
+  IMPORTANT:
+  - Only SELECT queries are allowed
+  - Queries are automatically limited to prevent excessive results
+  - Use for analyzing data, generating reports, or looking up information
+  
+  The results will be returned as a JSON array.`,
+  
+  endsAgentStep: true,
+  
+  exampleInputs: [
+    {
+      query: 'SELECT * FROM users WHERE status = \'active\' ORDER BY created_at DESC',
+      limit: 50
+    },
+    {
+      query: 'SELECT COUNT(*) as total FROM orders WHERE date > \'2024-01-01\'',
+      limit: 1
+    }
+  ],
+  
+  execute: async ({ query, limit }) => {
+    // Security: Ensure read-only
+    if (!/^\s*SELECT/i.test(query)) {
+      return [{
+        type: 'json',
+        value: {
+          errorMessage: 'Only SELECT queries are allowed for security reasons'
+        }
+      }]
+    }
+    
+    try {
+      const result = await pool.query(`${query} LIMIT ${limit}`)
+      
+      return [{
+        type: 'json',
+        value: {
+          rows: result.rows,
+          rowCount: result.rowCount,
+          message: `Query returned ${result.rowCount} rows`
+        }
+      }]
+    } catch (error) {
+      return [{
+        type: 'json',
+        value: {
+          errorMessage: `Database query failed: ${error.message}`,
+          query // Include query for debugging
+        }
+      }]
+    }
+  }
+})
+```
+
+## Tool Result Types
+
+Custom tools must return an array of `ToolResultOutput` objects:
+
+### Text Result
+
+```typescript
+return [{
+  type: 'text',
+  text: 'The operation completed successfully'
+}]
+```
+
+### JSON Result
+
+```typescript
+return [{
+  type: 'json',
+  value: {
+    success: true,
+    data: { id: 123, name: 'Example' },
+    timestamp: new Date().toISOString()
+  }
+}]
+```
+
+### Image Result
+
+```typescript
+return [{
+  type: 'image',
+  image: 'base64EncodedImageData...',
+  mediaType: 'image/png'
+}]
+```
+
+### Multiple Results
+
+```typescript
+return [
+  { type: 'text', text: 'Operation summary' },
+  { type: 'json', value: { details: {...} } },
+  { type: 'text', text: 'Additional notes' }
+]
+```
+
+## Error Handling
+
+Best practices for error handling in custom tools:
+
+```typescript
+execute: async (params) => {
+  try {
+    // Your tool logic here
+    const result = await someOperation(params)
+    
+    return [{
+      type: 'json',
+      value: { success: true, result }
+    }]
+  } catch (error) {
+    // Return error as JSON so agent can handle it
+    return [{
+      type: 'json',
+      value: {
+        success: false,
+        errorMessage: error instanceof Error 
+          ? error.message 
+          : 'Unknown error occurred'
+      }
+    }]
+  }
+}
+```
+
+## Using Custom Tools
+
+Once defined, pass custom tools to `CodebuffClient`:
+
+```typescript
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY,
+  customToolDefinitions: [
+    sendEmailTool,
+    queryDatabaseTool,
+    // ... more tools
+  ]
+})
+```
+
+Agents will automatically discover and use the tools when appropriate based on the descriptions you provide.
+
+## Best Practices
+
+1. **Clear descriptions**: Write detailed tool descriptions explaining when and how to use the tool
+2. **Input validation**: Use Zod schemas to enforce parameter types and constraints
+3. **Error handling**: Return structured error information rather than throwing exceptions
+4. **Security**: Validate and sanitize inputs, especially for tools that interact with external systems
+5. **Example inputs**: Provide realistic examples to guide the LLM
+6. **Idempotency**: Design tools to be safe to retry when possible
+7. **Logging**: Log tool executions for debugging and monitoring
+
+## Related Types
+
+- [CodebuffClient](/api/codebuff-client) - Main SDK client
+- [AgentDefinition](/api/agent-definition) - Custom agent configuration
+- [ToolHelpers](/api/tool-helpers) - Built-in tool utilities

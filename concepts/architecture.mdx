@@ -1,0 +1,307 @@
+---
+title: Architecture
+description: Understanding Codebuff's multi-agent architecture and how components work together
+---
+
+# Architecture
+
+Codebuff is built on a **multi-agent orchestration architecture** where specialized AI agents coordinate to complete coding tasks. Instead of using a single large model for everything, Codebuff coordinates multiple purpose-built agents that work together.
+
+## High-Level Overview
+
+When you ask Codebuff to make a change, here's what happens:
+
+1. **Base Agent** receives your request and plans the approach
+2. **Specialized agents** are spawned to gather context (file-picker, code-searcher)
+3. **Editor Agent** implements the changes based on gathered context
+4. **Reviewer Agent** validates the changes
+5. **Commander Agent** runs tests and validation commands
+
+<Info>
+  This orchestration approach gives you better context understanding, more accurate edits, and fewer errors compared to single-model tools.
+</Info>
+
+## Core Components
+
+### CLI (Command Line Interface)
+
+The CLI is the primary user interface for Codebuff. Located in `cli/src/`, it provides:
+
+- **Interactive chat interface** for natural language coding requests
+- **Command system** (`/init`, `/usage`, etc.) for workspace management
+- **Real-time feedback** as agents work on your code
+- **Git integration** for tracking changes
+
+Key files:
+- `cli/src/index.tsx` - Entry point
+- `cli/src/chat.tsx` - Main chat interface (49KB, handles all interaction)
+- `cli/src/app.tsx` - Application shell
+
+### SDK (Software Development Kit)
+
+The SDK (`sdk/src/`) provides the core runtime for executing agents and can be embedded in any Node.js application:
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+
+const client = new CodebuffClient({
+  apiKey: 'your-api-key',
+  cwd: '/path/to/project',
+})
+
+const result = await client.run({
+  agent: 'base',
+  prompt: 'Add error handling to all API endpoints',
+})
+```
+
+Key SDK files:
+- `sdk/src/client.ts` - Main client interface
+- `sdk/src/run.ts` - Agent execution engine (23KB)
+- `sdk/src/run-state.ts` - State management (22KB)
+- `sdk/src/tools/` - Built-in tool implementations
+
+### Agents
+
+Agents are the specialized workers in Codebuff. Each agent is defined in `agents/` and has:
+
+- **Unique purpose** (finding files, editing code, reviewing changes)
+- **Specific tools** it can use
+- **Custom prompts** tailored to its task
+- **Ability to spawn sub-agents** for delegation
+
+See [Agents](/concepts/agents) for detailed information on each agent type.
+
+### Tools
+
+Tools are the actions agents can perform, implemented in `sdk/src/tools/`:
+
+- **File operations** - read_files, write_file, str_replace
+- **Code analysis** - code_search, glob, list_directory
+- **Terminal** - run_terminal_command
+- **Agent spawning** - spawn_agents
+
+See [Tools](/concepts/tools) for the complete tool reference.
+
+## Data Flow
+
+Here's how data flows through Codebuff during a typical request:
+
+```
+┌─────────────┐
+│    User     │
+│   Prompt    │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────────────────────────────┐
+│         Base Agent (base2)          │
+│  - Receives prompt                  │
+│  - Plans approach                   │
+│  - Coordinates subagents            │
+└──────┬──────────────────────────────┘
+       │
+       ├─────────────────────────┬──────────────────┐
+       ▼                         ▼                  ▼
+┌────────────┐          ┌──────────────┐   ┌────────────┐
+│File Picker │          │Code Searcher │   │ Commander  │
+│ (parallel) │          │  (parallel)  │   │  (tests)   │
+└─────┬──────┘          └──────┬───────┘   └─────┬──────┘
+      │                        │                  │
+      └────────────┬───────────┘                  │
+                   ▼                              │
+           ┌───────────────┐                      │
+           │ Context Pool  │                      │
+           │ (files read)  │                      │
+           └───────┬───────┘                      │
+                   ▼                              │
+           ┌───────────────┐                      │
+           │ Editor Agent  │                      │
+           │ (implements)  │                      │
+           └───────┬───────┘                      │
+                   ▼                              │
+           ┌───────────────┐                      │
+           │ Code Reviewer │◄─────────────────────┘
+           │  (validates)  │
+           └───────┬───────┘
+                   ▼
+           ┌───────────────┐
+           │   Response    │
+           │   to User     │
+           └───────────────┘
+```
+
+## Execution Model
+
+### Agent Lifecycle
+
+Each agent follows this lifecycle:
+
+1. **Initialization** - Agent receives prompt and params
+2. **handleSteps execution** - Generator function controls agent behavior
+3. **Tool calls** - Agent uses tools to read files, spawn agents, etc.
+4. **LLM steps** - Agent sends messages to LLM for decision-making
+5. **Output** - Agent returns result (last_message, all_messages, or structured_output)
+
+### Step-by-Step Execution
+
+Agents use TypeScript generator functions to control execution:
+
+```typescript
+handleSteps: function* ({ agentState, prompt, params, logger }) {
+  // Step 1: Read some files
+  yield {
+    toolName: 'read_files',
+    input: { paths: ['src/index.ts'] }
+  }
+  
+  // Step 2: Let the LLM think and respond
+  yield 'STEP'
+  
+  // Step 3: Spawn a subagent
+  yield {
+    toolName: 'spawn_agents',
+    input: {
+      agents: [{
+        agent_type: 'editor',
+        prompt: 'Add error handling'
+      }]
+    }
+  }
+  
+  // Step 4: Another LLM step
+  yield 'STEP'
+}
+```
+
+### Context Management
+
+Codebuff automatically manages context through the **Context Pruner** agent:
+
+- Runs automatically between steps
+- Summarizes conversation when context limit is approaching
+- Preserves important information (user messages, file changes, errors)
+- Triggers on cache misses (>5 min gaps) to take advantage of fresh context
+
+From `agents/context-pruner.ts`:
+```typescript
+const maxContextLength: number = params?.maxContextLength ?? 200_000
+// Prune when exceeding limit OR when cache will miss
+if (agentState.contextTokenCount + TOKEN_COUNT_FUDGE_FACTOR <= maxContextLength && !cacheWillMiss) {
+  // No pruning needed
+  return
+}
+// Otherwise, summarize conversation history...
+```
+
+## Model Selection
+
+Different agents use different models optimized for their tasks:
+
+- **Base Agent (base2)**: `claude-opus-4.6` or `minimax-m2.5` (free mode)
+- **Editor**: `claude-opus-4.6` or `gpt-5.1`
+- **File Picker**: `gemini-2.5-flash-lite` (fast, cost-effective)
+- **Commander**: `gemini-3.1-flash-lite-preview` (quick command execution)
+- **Context Pruner**: `gpt-5-mini` (efficient summarization)
+
+<Tip>
+  Codebuff supports **any model on OpenRouter**. You can customize agents to use different models based on your needs and budget.
+</Tip>
+
+## Extension Points
+
+Codebuff is designed to be extended:
+
+### Custom Agents
+
+Create agents in `.agents/` directory:
+```typescript
+export default {
+  id: 'my-agent',
+  displayName: 'My Custom Agent',
+  model: 'openai/gpt-5.1',
+  toolNames: ['read_files', 'write_file'],
+  instructionsPrompt: 'Your instructions here...',
+}
+```
+
+### Custom Tools
+
+Provide custom tool implementations via the SDK:
+```typescript
+const customTool = {
+  name: 'my_tool',
+  description: 'Does something custom',
+  inputSchema: { /* ... */ },
+  handler: async (params) => {
+    // Tool implementation
+    return [{ type: 'json', value: result }]
+  }
+}
+
+await client.run({
+  agent: 'base',
+  customToolDefinitions: [customTool],
+})
+```
+
+### MCP Servers
+
+Integrate Model Context Protocol servers for external tools:
+```typescript
+const agent = {
+  id: 'my-agent',
+  mcpServers: {
+    'filesystem': {
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/path']
+    }
+  },
+  toolNames: ['filesystem/read_file', 'filesystem/write_file'],
+}
+```
+
+## Performance Considerations
+
+### Parallel Agent Spawning
+
+The base agent spawns multiple agents in parallel when they don't depend on each other:
+
+```typescript
+// From base2.ts system prompt:
+// "Spawn multiple agents in parallel: This increases the speed 
+// of your response AND allows you to be more comprehensive"
+```
+
+Example: Spawning 3 file-pickers simultaneously to explore different parts of the codebase.
+
+### Prompt Caching
+
+Agents leverage prompt caching (Anthropic's 5-minute cache window):
+- System prompts are cached
+- File tree is cached
+- Context pruner triggers on cache misses to refresh context
+
+### Token Efficiency
+
+Smaller, faster models are used for routine tasks:
+- File discovery uses Gemini Flash
+- Command execution uses Gemini Flash Lite
+- Only complex reasoning uses Opus/GPT-5
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agents" icon="robot" href="/concepts/agents">
+    Learn about each specialized agent
+  </Card>
+  <Card title="Multi-Agent Orchestration" icon="diagram-project" href="/concepts/multi-agent-orchestration">
+    See how agents work together
+  </Card>
+  <Card title="Tools" icon="wrench" href="/concepts/tools">
+    Explore available tools
+  </Card>
+  <Card title="Creating Agents" icon="code" href="/agents/creating-agents">
+    Build your own agents
+  </Card>
+</CardGroup>

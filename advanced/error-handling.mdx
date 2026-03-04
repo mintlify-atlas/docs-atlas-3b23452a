@@ -1,0 +1,473 @@
+---
+title: Error Handling
+description: Error types, retry logic, and debugging in Codebuff
+---
+
+Codebuff provides comprehensive error handling with automatic retries, status codes, and structured error types.
+
+## Error Types
+
+Codebuff uses HTTP-style status codes for error classification:
+
+```typescript
+// From sdk/src/error-utils.ts:11-16
+export type HttpError = Error & { statusCode: number }
+
+export const RETRYABLE_STATUS_CODES = new Set([408, 429, 500, 502, 503, 504])
+```
+
+### Retryable Errors
+
+These errors trigger automatic retry:
+
+- **408 Request Timeout**: Request took too long
+- **429 Too Many Requests**: Rate limit exceeded
+- **500 Internal Server Error**: Server-side error
+- **502 Bad Gateway**: Upstream service error
+- **503 Service Unavailable**: Temporary unavailability
+- **504 Gateway Timeout**: Upstream timeout
+
+```typescript
+// From sdk/src/error-utils.ts:69-73
+export function isRetryableStatusCode(statusCode: number | undefined): boolean {
+  if (statusCode === undefined) return false
+  return RETRYABLE_STATUS_CODES.has(statusCode)
+}
+```
+
+## Error Factory Functions
+
+Codebuff provides convenient functions for creating specific error types:
+
+### HTTP Errors
+
+```typescript
+// From sdk/src/error-utils.ts:25-29
+export function createHttpError(message: string, statusCode: number): HttpError {
+  const error = new Error(message) as HttpError
+  error.statusCode = statusCode
+  return error
+}
+```
+
+### Authentication Errors (401)
+
+```typescript
+// From sdk/src/error-utils.ts:34-36
+export function createAuthError(message = 'Authentication failed'): HttpError {
+  return createHttpError(message, 401)
+}
+```
+
+Example usage:
+
+```typescript
+import { createAuthError } from '@codebuff/sdk'
+
+if (!apiKey) {
+  throw createAuthError('API key is required')
+}
+```
+
+### Forbidden Errors (403)
+
+```typescript
+// From sdk/src/error-utils.ts:41-43
+export function createForbiddenError(message = 'Access forbidden'): HttpError {
+  return createHttpError(message, 403)
+}
+```
+
+### Payment Required Errors (402)
+
+```typescript
+// From sdk/src/error-utils.ts:48-50
+export function createPaymentRequiredError(message = 'Payment required'): HttpError {
+  return createHttpError(message, 402)
+}
+```
+
+### Server Errors (500)
+
+```typescript
+// From sdk/src/error-utils.ts:55-57
+export function createServerError(message = 'Server error', statusCode = 500): HttpError {
+  return createHttpError(message, statusCode)
+}
+```
+
+### Network Errors (503)
+
+```typescript
+// From sdk/src/error-utils.ts:63-65
+export function createNetworkError(message = 'Network error'): HttpError {
+  return createHttpError(message, 503)
+}
+```
+
+Used for connection failures, DNS errors, timeouts:
+
+```typescript
+import { createNetworkError } from '@codebuff/sdk'
+
+try {
+  await fetch('https://api.example.com')
+} catch (error) {
+  throw createNetworkError('Failed to connect to API')
+}
+```
+
+## Extracting Error Status Codes
+
+Codebuff provides utilities to extract status codes from different error formats:
+
+```typescript
+// From sdk/src/error-utils.ts:79-97
+export function getErrorStatusCode(error: unknown): number | undefined {
+  if (error && typeof error === 'object') {
+    // Check 'statusCode' first (our convention)
+    if ('statusCode' in error) {
+      const statusCode = (error as { statusCode: unknown }).statusCode
+      if (typeof statusCode === 'number') {
+        return statusCode
+      }
+    }
+    // Check 'status' (AI SDK's APICallError uses this)
+    if ('status' in error) {
+      const status = (error as { status: unknown }).status
+      if (typeof status === 'number') {
+        return status
+      }
+    }
+  }
+  return undefined
+}
+```
+
+Example:
+
+```typescript
+import { getErrorStatusCode, isRetryableStatusCode } from '@codebuff/sdk'
+
+try {
+  await makeApiCall()
+} catch (error) {
+  const statusCode = getErrorStatusCode(error)
+  if (isRetryableStatusCode(statusCode)) {
+    console.log('Will retry automatically')
+  } else {
+    console.error('Permanent failure')
+  }
+}
+```
+
+## Retry Configuration
+
+Codebuff implements exponential backoff for automatic retries.
+
+### Retry Constants
+
+```typescript
+// From sdk/src/retry-config.ts:27-39
+export const MAX_RETRIES_PER_MESSAGE = 3
+
+export const RETRY_BACKOFF_BASE_DELAY_MS = 1000
+
+export const RETRY_BACKOFF_MAX_DELAY_MS = 8000
+
+export const RECONNECTION_MESSAGE_DURATION_MS = 2000
+
+export const RECONNECTION_RETRY_DELAY_MS = 500
+```
+
+### Retry Timing
+
+- **Max retries**: 3 attempts
+- **First retry**: 1 second delay
+- **Second retry**: 2 seconds delay
+- **Third retry**: 4 seconds delay
+- **Max delay**: Capped at 8 seconds
+
+### Exponential Backoff Pattern
+
+```typescript
+// From sdk/src/retry-config.ts:8-20
+import { MAX_RETRIES_PER_MESSAGE, RETRY_BACKOFF_BASE_DELAY_MS, RETRY_BACKOFF_MAX_DELAY_MS } from '@codebuff/sdk'
+
+let retryCount = 0
+let backoffDelay = RETRY_BACKOFF_BASE_DELAY_MS
+
+while (retryCount < MAX_RETRIES_PER_MESSAGE) {
+  await new Promise(resolve => setTimeout(resolve, backoffDelay))
+  
+  try {
+    await attemptOperation()
+    break
+  } catch (error) {
+    backoffDelay = Math.min(backoffDelay * 2, RETRY_BACKOFF_MAX_DELAY_MS)
+    retryCount++
+  }
+}
+```
+
+### Reconnection Handling
+
+After network reconnection:
+
+1. Show reconnection message for 2 seconds
+2. Wait 500ms for connection to stabilize
+3. Retry failed messages with exponential backoff
+
+```typescript
+const RECONNECTION_MESSAGE_DURATION_MS = 2000
+const RECONNECTION_RETRY_DELAY_MS = 500
+```
+
+## Error Sanitization
+
+Sanitize errors before displaying to users:
+
+```typescript
+// From sdk/src/error-utils.ts:103-117
+export function sanitizeErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+  if (typeof error === 'string') {
+    return error
+  }
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message: unknown }).message
+    if (typeof message === 'string') {
+      return message
+    }
+  }
+  return String(error)
+}
+```
+
+Usage:
+
+```typescript
+import { sanitizeErrorMessage } from '@codebuff/sdk'
+
+try {
+  await riskyOperation()
+} catch (error) {
+  const safeMessage = sanitizeErrorMessage(error)
+  console.error('Operation failed:', safeMessage)
+}
+```
+
+## Handling Common Errors
+
+### Rate Limiting (429)
+
+```typescript
+import { createHttpError, getErrorStatusCode } from '@codebuff/sdk'
+
+try {
+  await callApi()
+} catch (error) {
+  const statusCode = getErrorStatusCode(error)
+  if (statusCode === 429) {
+    // Extract retry-after header if available
+    const retryAfter = error.response?.headers?.['retry-after']
+    console.log(`Rate limited. Retry after: ${retryAfter}s`)
+    
+    // Automatic retry will handle this
+    throw error
+  }
+}
+```
+
+For Claude OAuth, rate limits are tracked automatically:
+
+```typescript
+// From sdk/src/impl/model-provider.ts:43-46
+export function markClaudeOAuthRateLimited(resetAt?: Date): void {
+  const fiveMinutesFromNow = Date.now() + 5 * 60 * 1000
+  claudeOAuthRateLimitedUntil = resetAt ? resetAt.getTime() : fiveMinutesFromNow
+}
+```
+
+### Authentication Failures (401)
+
+```typescript
+import { createAuthError, getUserCredentials } from '@codebuff/sdk'
+
+const user = getUserCredentials()
+if (!user) {
+  throw createAuthError('Not authenticated. Run: codebuff login')
+}
+```
+
+### Network Errors
+
+```typescript
+import { createNetworkError, isRetryableStatusCode } from '@codebuff/sdk'
+
+try {
+  await fetch(url, { timeout: 30000 })
+} catch (error) {
+  if (error.code === 'ECONNREFUSED') {
+    throw createNetworkError('Connection refused')
+  }
+  if (error.code === 'ETIMEDOUT') {
+    throw createNetworkError('Request timed out')
+  }
+  throw error
+}
+```
+
+### File System Errors
+
+```typescript
+import { getFiles } from '@codebuff/sdk'
+
+const files = await getFiles({
+  filePaths: ['src/app.ts'],
+  cwd: process.cwd(),
+  fs: fs,
+})
+
+for (const [path, content] of Object.entries(files)) {
+  if (content === null) {
+    console.error(`Failed to read: ${path}`)
+  } else if (content.startsWith('FILE_READ_STATUS.')) {
+    console.warn(`${path}: ${content}`)
+  } else {
+    // File read successfully
+    console.log(`Read ${path}: ${content.length} bytes`)
+  }
+}
+```
+
+## Debugging Tips
+
+### Enable Verbose Logging
+
+```typescript
+import { run } from '@codebuff/sdk'
+
+await run({
+  apiKey: process.env.CODEBUFF_API_KEY,
+  agentId: 'my-agent',
+  input: 'Your prompt',
+  logger: {
+    debug: console.debug,
+    info: console.info,
+    warn: console.warn,
+    error: console.error,
+  },
+})
+```
+
+### Inspect Error Details
+
+```typescript
+import { getErrorStatusCode, sanitizeErrorMessage } from '@codebuff/sdk'
+
+try {
+  await run({ /* ... */ })
+} catch (error) {
+  console.error('Error:', sanitizeErrorMessage(error))
+  console.error('Status code:', getErrorStatusCode(error))
+  console.error('Full error:', error)
+  
+  if (error instanceof Error) {
+    console.error('Stack trace:', error.stack)
+  }
+}
+```
+
+### Check Credentials
+
+```typescript
+import { getUserCredentials, isClaudeOAuthValid } from '@codebuff/sdk'
+
+const user = getUserCredentials()
+if (!user) {
+  console.error('No credentials found. Run: codebuff login')
+  process.exit(1)
+}
+
+console.log('Authenticated as:', user.email)
+console.log('Claude OAuth valid:', isClaudeOAuthValid())
+```
+
+### Monitor Retries
+
+```typescript
+let attemptCount = 0
+
+try {
+  await run({
+    // ... config
+    handleEvent: (event) => {
+      if (event.type === 'retry') {
+        attemptCount++
+        console.log(`Retry attempt ${attemptCount}`)
+      }
+    },
+  })
+} catch (error) {
+  console.error(`Failed after ${attemptCount} retries`)
+}
+```
+
+## Error Recovery Patterns
+
+### Graceful Degradation
+
+```typescript
+try {
+  const result = await runWithClaudeOAuth()
+  return result
+} catch (error) {
+  const statusCode = getErrorStatusCode(error)
+  if (statusCode === 429) {
+    // Fall back to OpenRouter
+    console.warn('Claude OAuth rate limited, using OpenRouter')
+    return await runWithOpenRouter()
+  }
+  throw error
+}
+```
+
+### Retry with Backoff
+
+```typescript
+import { MAX_RETRIES_PER_MESSAGE, RETRY_BACKOFF_BASE_DELAY_MS } from '@codebuff/sdk'
+
+async function retryOperation<T>(operation: () => Promise<T>): Promise<T> {
+  let lastError: Error
+  let delay = RETRY_BACKOFF_BASE_DELAY_MS
+  
+  for (let i = 0; i < MAX_RETRIES_PER_MESSAGE; i++) {
+    try {
+      return await operation()
+    } catch (error) {
+      lastError = error as Error
+      const statusCode = getErrorStatusCode(error)
+      
+      if (!isRetryableStatusCode(statusCode)) {
+        throw error // Don't retry non-retryable errors
+      }
+      
+      if (i < MAX_RETRIES_PER_MESSAGE - 1) {
+        await new Promise(resolve => setTimeout(resolve, delay))
+        delay *= 2
+      }
+    }
+  }
+  
+  throw lastError!
+}
+```
+
+## Next Steps
+
+- Learn about [Model Providers](/advanced/model-providers)
+- Explore [Credentials Management](/advanced/credentials)
+- See [File System Access](/advanced/file-system)

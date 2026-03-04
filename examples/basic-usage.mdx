@@ -1,0 +1,203 @@
+---
+title: "Basic Usage"
+description: "Getting started with Codebuff SDK - simple integration examples and first steps"
+---
+
+## Quick Start with SDK
+
+The Codebuff SDK allows you to run AI coding agents programmatically in your Node.js applications.
+
+### Installation
+
+```bash
+npm install @codebuff/sdk
+```
+
+### Basic SDK Usage
+
+Here's a simple example of running the base Codebuff agent:
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY,
+  cwd: process.cwd(),
+})
+
+const result = await client.run({
+  agent: 'codebuff/base@0.0.16',
+  prompt: 'Create a simple calculator class',
+  handleEvent: (event) => {
+    console.log('Event:', JSON.stringify(event))
+  },
+})
+
+if (result.output.type === 'error') {
+  console.error('Error:', result.output.message)
+} else {
+  console.log('Success!', result.output)
+}
+```
+
+### Continuing a Conversation
+
+You can continue a session by passing the previous run state:
+
+```typescript
+// First run
+const runState1 = await client.run({
+  agent: 'codebuff/base@0.0.16',
+  prompt: 'Create a simple calculator class',
+  handleEvent: (event) => {
+    console.log('Codebuff Event', JSON.stringify(event))
+  },
+})
+
+// Continue with follow-up
+const runState2 = await client.run({
+  agent: 'codebuff/base@0.0.16',
+  prompt: 'Add unit tests for the calculator',
+  previousRun: runState1, // Pass the previous state
+  handleEvent: (event) => {
+    console.log('Codebuff Event', JSON.stringify(event))
+  },
+})
+```
+
+## CLI Usage
+
+### Installation
+
+```bash
+npm install -g codebuff
+```
+
+### Running Codebuff CLI
+
+```bash
+cd your-project
+codebuff
+```
+
+Then just tell Codebuff what you want:
+
+- "Fix the SQL injection vulnerability in user registration"
+- "Add rate limiting to all API endpoints"
+- "Refactor the database connection code for better performance"
+
+### Initialize Custom Agents
+
+Start Codebuff and run the `/init` command to set up custom agent development:
+
+```bash
+codebuff
+```
+
+Then inside the CLI:
+
+```
+/init
+```
+
+This creates:
+```
+knowledge.md               # Project context for Codebuff
+.agents/
+└── types/                 # TypeScript type definitions
+    ├── agent-definition.ts
+    ├── tools.ts
+    └── util-types.ts
+```
+
+## Handling Events
+
+The `handleEvent` callback receives every event during execution:
+
+```typescript
+const result = await client.run({
+  agent: 'codebuff/base@0.0.16',
+  prompt: 'Add error handling to API endpoints',
+  handleEvent: (event) => {
+    switch (event.type) {
+      case 'agent_start':
+        console.log('Agent started:', event.agentId)
+        break
+      case 'tool_call':
+        console.log('Tool called:', event.toolName)
+        break
+      case 'text_response':
+        console.log('Response:', event.text)
+        break
+      case 'error':
+        console.error('Error occurred:', event.message)
+        break
+    }
+  },
+})
+```
+
+## Streaming Output
+
+You can stream the agent's output in real-time:
+
+```typescript
+const result = await client.run({
+  agent: 'codebuff/base2@latest',
+  prompt: 'Review this code for bugs',
+  handleStreamChunk: (chunk) => {
+    if (typeof chunk === 'string') {
+      process.stdout.write(chunk)
+    }
+  },
+})
+```
+
+## Error Handling
+
+Always check the output type to handle errors:
+
+```typescript
+const result = await client.run({
+  agent: 'codebuff/base@0.0.16',
+  prompt: 'Add authentication',
+  handleEvent: (event) => {
+    if (event.type === 'error') {
+      console.error('Runtime error:', event.message)
+    }
+  },
+})
+
+if (result.output.type === 'error') {
+  console.error('Run failed:', result.output.message)
+  process.exit(1)
+}
+
+console.log('Run succeeded:', result.output)
+```
+
+## Configuration Options
+
+The `CodebuffClient` constructor accepts several options:
+
+```typescript
+const client = new CodebuffClient({
+  // Required: Your API key from https://www.codebuff.com/api-keys
+  apiKey: process.env.CODEBUFF_API_KEY,
+  
+  // Optional: Working directory for file operations
+  cwd: process.cwd(),
+  
+  // Optional: Custom error handler
+  onError: (error) => {
+    console.error('Codebuff error:', error.message)
+  },
+})
+```
+
+## Next Steps
+
+- [Create a custom agent](/examples/custom-agent) to specialize behavior
+- [Build custom tools](/examples/custom-tools) to extend functionality
+- [Set up multi-step workflows](/examples/multi-step-workflow) for complex tasks
+- [Automate git workflows](/examples/git-automation) with intelligent commits

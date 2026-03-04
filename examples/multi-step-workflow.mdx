@@ -1,0 +1,457 @@
+---
+title: "Multi-Step Workflow"
+description: "Build complex multi-step workflows with Codebuff - coordinate multiple agents and orchestrate advanced tasks"
+---
+
+## Overview
+
+Multi-step workflows allow you to create sophisticated AI automation by coordinating multiple agents, controlling execution flow, and building complex processes. Use the `handleSteps` generator function to define programmatic workflows.
+
+## Basic Multi-Step Agent
+
+Here's a simple example that executes steps in sequence:
+
+```typescript
+import type { 
+  AgentDefinition, 
+  AgentStepContext,
+  ToolCall 
+} from '@codebuff/sdk'
+
+const diffReviewerAgent: AgentDefinition = {
+  id: 'diff-reviewer',
+  displayName: 'Git Diff Reviewer',
+  model: 'anthropic/claude-4-sonnet-20250522',
+  toolNames: ['read_files', 'run_terminal_command', 'add_message'],
+
+  instructionsPrompt: `
+Execute the following steps:
+1. Run git diff to see changes
+2. Read the files that have changed
+3. Review the changes and suggest improvements
+  `,
+
+  handleSteps: function* ({ agentState, prompt, params }: AgentStepContext) {
+    // Step 1: Get the git diff
+    yield {
+      toolName: 'run_terminal_command',
+      input: {
+        command: 'git diff',
+        process_type: 'SYNC',
+        timeout_seconds: 30,
+      },
+    } satisfies ToolCall
+
+    // Step 2: Guide the AI to read files
+    yield {
+      toolName: 'add_message',
+      input: {
+        role: 'assistant',
+        content: "I've analyzed the diff. Now I'll read the changed files for context.",
+      },
+      includeToolCall: false,
+    } satisfies ToolCall
+
+    // Step 3: Let AI decide what to do next
+    yield 'STEP'
+
+    // Step 4: Let AI complete the review
+    yield 'STEP_ALL'
+  },
+}
+```
+
+## Advanced Example: File Explorer
+
+This agent spawns multiple sub-agents in parallel to explore different parts of a codebase:
+
+```typescript
+import type { AgentDefinition, ToolCall } from '@codebuff/sdk'
+
+const fileExplorerAgent: AgentDefinition = {
+  id: 'advanced-file-explorer',
+  displayName: 'Parallel File Explorer',
+  model: 'openai/gpt-5.1',
+  
+  toolNames: ['spawn_agents', 'set_output'],
+  spawnableAgents: ['codebuff/file-picker@0.0.1'],
+  includeMessageHistory: false,
+
+  spawnerPrompt: 'Spawns multiple file picker agents in parallel to explore the codebase',
+
+  inputSchema: {
+    prompt: {
+      description: 'What you need to accomplish by exploring the codebase',
+      type: 'string',
+    },
+    params: {
+      type: 'object',
+      properties: {
+        prompts: {
+          description: 'List of 1-4 different parts of the codebase to explore',
+          type: 'array',
+          items: { type: 'string' },
+        },
+      },
+      required: ['prompts'],
+    },
+  },
+
+  outputMode: 'structured_output',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      results: {
+        type: 'string',
+        description: 'The results of the file exploration',
+      },
+    },
+    required: ['results'],
+  },
+
+  handleSteps: function* ({ prompt, params }) {
+    const prompts: string[] = params?.prompts ?? []
+    
+    // Map prompts to file picker tasks
+    const filePickerPrompts = prompts.map(
+      (focusPrompt) =>
+        `Based on the overall goal "${prompt}", find files related to: ${focusPrompt}`,
+    )
+    
+    // Spawn multiple agents in parallel
+    const { toolResult: spawnResult } = yield {
+      toolName: 'spawn_agents',
+      input: {
+        agents: filePickerPrompts.map((promptText) => ({
+          agent_type: 'codebuff/file-picker@0.0.1',
+          prompt: promptText,
+        })),
+      },
+    } satisfies ToolCall
+    
+    // Set the structured output
+    yield {
+      toolName: 'set_output',
+      input: {
+        results: spawnResult,
+      },
+    } satisfies ToolCall
+  },
+}
+
+// Usage
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY,
+  cwd: process.cwd(),
+})
+
+const result = await client.run({
+  agent: 'advanced-file-explorer',
+  agentDefinitions: [fileExplorerAgent],
+  prompt: 'Find all authentication-related code',
+  params: {
+    prompts: [
+      'authentication logic',
+      'user session management',
+      'API token handling',
+      'password hashing',
+    ],
+  },
+  handleEvent: (event) => {
+    console.log('Progress:', event)
+  },
+})
+```
+
+## Real-World Example: Git Commit Workflow
+
+This agent creates intelligent git commits by analyzing changes:
+
+```typescript
+import type {
+  AgentDefinition,
+  AgentStepContext,
+  ToolCall,
+} from '@codebuff/sdk'
+
+const gitCommitterAgent: AgentDefinition = {
+  id: 'git-committer',
+  displayName: 'Intelligent Git Committer',
+  model: 'anthropic/claude-4-sonnet-20250522',
+  toolNames: ['read_files', 'run_terminal_command', 'add_message', 'end_turn'],
+
+  inputSchema: {
+    prompt: {
+      type: 'string',
+      description: 'What changes to commit',
+    },
+  },
+
+  spawnerPrompt: 'Spawn when you need to commit code changes with an appropriate message',
+
+  systemPrompt: 'You are an expert software developer creating meaningful git commits.',
+
+  instructionsPrompt: `
+Follow these steps:
+1. Analyze changes with git diff and git log
+2. Read relevant files for context
+3. Stage appropriate files
+4. Create a commit with a descriptive message
+  `,
+
+  handleSteps: function* ({ agentState, prompt, params }: AgentStepContext) {
+    // Step 1: Analyze git state
+    yield {
+      toolName: 'run_terminal_command',
+      input: {
+        command: 'git diff',
+        process_type: 'SYNC',
+        timeout_seconds: 30,
+      },
+    } satisfies ToolCall
+
+    yield {
+      toolName: 'run_terminal_command',
+      input: {
+        command: 'git log --oneline -10',
+        process_type: 'SYNC',
+        timeout_seconds: 30,
+      },
+    } satisfies ToolCall
+
+    // Step 2: Guide AI to read files
+    yield {
+      toolName: 'add_message',
+      input: {
+        role: 'assistant',
+        content:
+          "I've analyzed the git diff and recent commits. Now I'll read relevant files for context.",
+      },
+      includeToolCall: false,
+    } satisfies ToolCall
+
+    // Step 3: Let AI read files it needs
+    yield 'STEP'
+
+    // Step 4: Guide AI to create commit
+    yield {
+      toolName: 'add_message',
+      input: {
+        role: 'assistant',
+        content:
+          "Now I'll analyze the changes and create a commit with a good message.",
+      },
+      includeToolCall: false,
+    } satisfies ToolCall
+
+    // Step 5: Let AI complete the commit
+    yield 'STEP_ALL'
+  },
+}
+```
+
+## Step Control Keywords
+
+The `handleSteps` generator can yield different values:
+
+### `ToolCall` - Execute a specific tool
+
+```typescript
+yield {
+  toolName: 'run_terminal_command',
+  input: {
+    command: 'npm test',
+    process_type: 'SYNC',
+  },
+} satisfies ToolCall
+```
+
+### `'STEP'` - Let AI generate one step
+
+```typescript
+// AI will decide what tool to call next
+yield 'STEP'
+```
+
+### `'STEP_ALL'` - Let AI continue until done
+
+```typescript
+// AI will keep generating steps until it's finished
+yield 'STEP_ALL'
+```
+
+## Accessing Context in handleSteps
+
+The `AgentStepContext` provides useful information:
+
+```typescript
+handleSteps: function* ({ agentState, prompt, params }: AgentStepContext) {
+  // agentState: Current state of the agent
+  // prompt: The user's prompt string
+  // params: Additional parameters passed to the agent
+  
+  if (params?.urgency === 'high') {
+    yield {
+      toolName: 'add_message',
+      input: {
+        role: 'assistant',
+        content: 'This is urgent, working quickly!',
+      },
+    }
+  }
+  
+  yield 'STEP_ALL'
+}
+```
+
+## Capturing Tool Results
+
+You can capture tool results for conditional logic:
+
+```typescript
+handleSteps: function* () {
+  // Execute tool and capture result
+  const { toolResult } = yield {
+    toolName: 'run_terminal_command',
+    input: {
+      command: 'npm test',
+      process_type: 'SYNC',
+    },
+  } satisfies ToolCall
+  
+  // Use result for conditional logic
+  if (toolResult.includes('FAILED')) {
+    yield {
+      toolName: 'add_message',
+      input: {
+        role: 'assistant',
+        content: 'Tests failed! Let me analyze the errors.',
+      },
+    }
+    yield 'STEP'
+  } else {
+    yield {
+      toolName: 'add_message',
+      input: {
+        role: 'assistant',
+        content: 'All tests passed!',
+      },
+    }
+  }
+  
+  yield 'STEP_ALL'
+}
+```
+
+## Complex Workflow: CI/CD Pipeline
+
+Here's a more complex example that orchestrates a full CI/CD workflow:
+
+```typescript
+const cicdAgent: AgentDefinition = {
+  id: 'cicd-pipeline',
+  displayName: 'CI/CD Pipeline Agent',
+  model: 'anthropic/claude-4-sonnet-20250522',
+  toolNames: [
+    'run_terminal_command',
+    'read_files',
+    'change_file',
+    'add_message',
+  ],
+
+  instructionsPrompt: 'Run a complete CI/CD pipeline: lint, test, build, and deploy',
+
+  handleSteps: function* () {
+    // Stage 1: Linting
+    yield {
+      toolName: 'add_message',
+      input: {
+        role: 'assistant',
+        content: '🔍 Stage 1: Running linter...',
+      },
+    }
+    
+    const { toolResult: lintResult } = yield {
+      toolName: 'run_terminal_command',
+      input: { command: 'npm run lint', process_type: 'SYNC' },
+    } satisfies ToolCall
+
+    // Stage 2: Testing
+    yield {
+      toolName: 'add_message',
+      input: {
+        role: 'assistant',
+        content: '🧪 Stage 2: Running tests...',
+      },
+    }
+    
+    const { toolResult: testResult } = yield {
+      toolName: 'run_terminal_command',
+      input: { command: 'npm test', process_type: 'SYNC' },
+    } satisfies ToolCall
+
+    // Stage 3: Build
+    yield {
+      toolName: 'add_message',
+      input: {
+        role: 'assistant',
+        content: '🔨 Stage 3: Building application...',
+      },
+    }
+    
+    yield {
+      toolName: 'run_terminal_command',
+      input: { command: 'npm run build', process_type: 'SYNC' },
+    } satisfies ToolCall
+
+    // Stage 4: Deploy (only if tests passed)
+    if (testResult.includes('PASS')) {
+      yield {
+        toolName: 'add_message',
+        input: {
+          role: 'assistant',
+          content: '🚀 Stage 4: Deploying to production...',
+        },
+      }
+      
+      yield {
+        toolName: 'run_terminal_command',
+        input: { command: 'npm run deploy', process_type: 'SYNC' },
+      } satisfies ToolCall
+      
+      yield {
+        toolName: 'add_message',
+        input: {
+          role: 'assistant',
+          content: '✅ Deployment complete!',
+        },
+      }
+    } else {
+      yield {
+        toolName: 'add_message',
+        input: {
+          role: 'assistant',
+          content: '❌ Tests failed. Deployment cancelled.',
+        },
+      }
+    }
+
+    yield 'STEP_ALL'
+  },
+}
+```
+
+## Best Practices
+
+1. **Clear instructions**: Provide detailed `instructionsPrompt` to guide the agent
+2. **Add context messages**: Use `add_message` to guide the AI between steps
+3. **Capture results**: Store tool results when you need conditional logic
+4. **Error handling**: Check tool results for errors before continuing
+5. **Use STEP wisely**: Mix programmatic control with AI decisions
+6. **Structured output**: Use `outputMode: 'structured_output'` for predictable results
+
+## Next Steps
+
+- [See git automation examples](/examples/git-automation) for more workflow patterns
+- [Create custom tools](/examples/custom-tools) to extend workflow capabilities
+- [Build custom agents](/examples/custom-agent) with specialized workflows

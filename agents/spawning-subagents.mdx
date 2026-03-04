@@ -1,0 +1,757 @@
+---
+title: 'Spawning Subagents'
+description: 'Compose agents to build complex AI workflows'
+---
+
+## Overview
+
+Agents can spawn other agents to delegate specialized tasks. This enables:
+
+- **Modular design**: Each agent focuses on one thing
+- **Reusable components**: Share agents across projects
+- **Parallel execution**: Spawn multiple agents simultaneously
+- **Complex workflows**: Chain agents together
+
+## Enabling Subagent Spawning
+
+### 1. Add spawn_agents Tool
+
+The parent agent needs the `spawn_agents` tool:
+
+```typescript
+const definition: AgentDefinition = {
+  id: 'parent-agent',
+  displayName: 'Parent Agent',
+  model: 'anthropic/claude-opus-4.6',
+  toolNames: ['spawn_agents'],  // Enable spawning
+  spawnableAgents: ['child-agent'],  // List allowed children
+}
+```
+
+### 2. Define Spawnable Agents
+
+List which agents can be spawned:
+
+```typescript
+// Using published agents (requires publisher/version)
+spawnableAgents: [
+  'codebuff/file-picker@0.0.1',
+  'codebuff/code-searcher@0.0.1',
+]
+
+// Using local agents (just the ID)
+spawnableAgents: [
+  'file-picker',
+  'code-searcher',
+  'thinker',
+]
+```
+
+## Spawning Methods
+
+### Method 1: AI-Controlled Spawning
+
+Let the AI decide when to spawn agents:
+
+```typescript
+const definition: AgentDefinition = {
+  id: 'orchestrator',
+  model: 'anthropic/claude-opus-4.6',
+  toolNames: ['spawn_agents', 'read_files'],
+  spawnableAgents: ['file-picker', 'researcher-web'],
+  
+  instructionsPrompt: `
+Use the spawn_agents tool to spawn specialized agents:
+- Spawn file-picker to find relevant files
+- Spawn researcher-web to search online
+
+Spawn multiple agents in parallel when possible.
+  `.trim(),
+}
+```
+
+The AI will call the tool:
+
+```json
+{
+  "tool": "spawn_agents",
+  "input": {
+    "agents": [
+      {
+        "agent_type": "file-picker",
+        "prompt": "Find files related to authentication"
+      },
+      {
+        "agent_type": "researcher-web",
+        "prompt": "Search for OAuth best practices"
+      }
+    ]
+  }
+}
+```
+
+### Method 2: Programmatic Spawning
+
+Use `handleSteps` to spawn agents from code:
+
+```typescript
+handleSteps: function* ({ prompt, params }) {
+  // Spawn multiple agents in parallel
+  const { toolResult } = yield {
+    toolName: 'spawn_agents',
+    input: {
+      agents: [
+        {
+          agent_type: 'file-picker',
+          prompt: 'Find relevant files',
+          params: { directories: ['src/'] },
+        },
+        {
+          agent_type: 'code-searcher',
+          prompt: 'Search for TODO comments',
+        },
+      ],
+    },
+  }
+
+  // Process results...
+  yield 'STEP'
+}
+```
+
+## Real Examples from Codebuff
+
+### Example 1: Base Orchestrator Agent
+
+From `base2.ts` - Orchestrates file finding, research, editing, and review:
+
+```typescript
+const definition: AgentDefinition = {
+  id: 'base2',
+  publisher: 'codebuff',
+  model: 'anthropic/claude-opus-4.6',
+  displayName: 'Buffy the Orchestrator',
+  
+  toolNames: [
+    'spawn_agents',
+    'read_files',
+    'str_replace',
+    'write_file',
+  ],
+  
+  spawnableAgents: [
+    'file-picker',
+    'code-searcher',
+    'directory-lister',
+    'glob-matcher',
+    'researcher-web',
+    'researcher-docs',
+    'commander',
+    'thinker',
+    'editor',
+    'code-reviewer',
+    'context-pruner',
+  ],
+  
+  instructionsPrompt: `
+Use the spawn_agents tool to spawn specialized agents to help you complete the user request.
+
+Spawn multiple agents in parallel when possible to speed up the process. For example:
+- Spawn 3 file-pickers + 1 code-searcher + 1 researcher-web in one spawn_agents call
+- Spawn the editor agent to implement changes after gathering context
+- Spawn code-reviewer to review changes after implementation
+  `.trim(),
+}
+```
+
+### Example 2: General Agent with File Reading
+
+From `general-agent.ts` - Pre-reads files, then spawns helpers:
+
+```typescript
+export const createGeneralAgent = (options: { model: 'gpt-5' | 'opus' }) => {
+  return {
+    publisher: 'codebuff',
+    model: options.model === 'gpt-5' ? 'openai/gpt-5.2' : 'anthropic/claude-opus-4.6',
+    displayName: options.model === 'gpt-5' ? 'GPT-5 Agent' : 'Opus Agent',
+    
+    inputSchema: {
+      prompt: {
+        type: 'string',
+        description: 'The problem you are trying to solve',
+      },
+      params: {
+        type: 'object',
+        properties: {
+          filePaths: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Relevant file paths to read before thinking',
+          },
+        },
+      },
+    },
+    
+    spawnableAgents: [
+      'researcher-web',
+      'researcher-docs',
+      'file-picker',
+      'code-searcher',
+      'commander',
+    ],
+    
+    toolNames: ['spawn_agents', 'read_files'],
+    
+    instructionsPrompt: `
+Use the spawn_agents tool to spawn agents to help you complete the user request.
+Spawn multiple agents in parallel when possible.
+    `.trim(),
+    
+    handleSteps: function* ({ params }) {
+      const filePaths = params?.filePaths as string[] | undefined
+
+      // Pre-read files if provided
+      if (filePaths && filePaths.length > 0) {
+        yield {
+          toolName: 'read_files',
+          input: { paths: filePaths },
+        }
+      }
+
+      // Now let AI spawn other agents as needed
+      while (true) {
+        const { stepsComplete } = yield 'STEP'
+        if (stepsComplete) break
+      }
+    },
+  }
+}
+```
+
+### Example 3: File Picker with File Lister
+
+From `file-picker.ts` - Spawns file-lister, processes results, reads files:
+
+```typescript
+const definition: AgentDefinition = {
+  id: 'file-picker',
+  publisher: 'codebuff',
+  model: 'google/gemini-2.5-flash-lite',
+  displayName: 'Fletcher the File Fetcher',
+  
+  spawnerPrompt: 'Spawn to find relevant files in a codebase. Outputs up to 12 file paths with summaries.',
+  
+  inputSchema: {
+    prompt: {
+      type: 'string',
+      description: 'Description of files you need to find',
+    },
+    params: {
+      type: 'object',
+      properties: {
+        directories: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Optional list of directories to search',
+        },
+      },
+    },
+  },
+  
+  toolNames: ['spawn_agents'],
+  spawnableAgents: ['file-lister'],
+  
+  handleSteps: function* ({ prompt, params }) {
+    // Spawn file-lister subagent
+    const { toolResult: fileListerResults } = yield {
+      toolName: 'spawn_agents',
+      input: {
+        agents: [
+          {
+            agent_type: 'file-lister',
+            prompt: prompt ?? '',
+            params: params ?? {},
+          },
+        ],
+      },
+    }
+
+    // Extract file paths from results
+    const spawnResults = extractSpawnResults(fileListerResults)
+    const allPaths = new Set<string>()
+    
+    for (const result of spawnResults) {
+      const fileListText = extractLastMessageText(result)
+      if (fileListText) {
+        const paths = fileListText.split('\n').filter(Boolean)
+        paths.forEach(path => allPaths.add(path))
+      }
+    }
+
+    const paths = Array.from(allPaths)
+
+    // Read all collected files
+    yield {
+      toolName: 'read_files',
+      input: { paths },
+    }
+
+    // Let AI summarize
+    yield 'STEP'
+  },
+}
+```
+
+## Agent Communication Patterns
+
+### Pattern 1: Sequential Pipeline
+
+Spawn agents one after another:
+
+```typescript
+handleSteps: function* () {
+  // Step 1: Find files
+  const { toolResult: files } = yield {
+    toolName: 'spawn_agents',
+    input: {
+      agents: [{ agent_type: 'file-picker', prompt: 'Find auth files' }],
+    },
+  }
+
+  // Process files...
+  const paths = extractPaths(files)
+
+  // Step 2: Edit files
+  yield {
+    toolName: 'spawn_agents',
+    input: {
+      agents: [{ agent_type: 'editor', prompt: 'Add validation' }],
+    },
+  }
+
+  // Step 3: Review changes
+  yield {
+    toolName: 'spawn_agents',
+    input: {
+      agents: [{ agent_type: 'code-reviewer', prompt: 'Review changes' }],
+    },
+  }
+}
+```
+
+### Pattern 2: Parallel Execution
+
+Spawn multiple agents at once:
+
+```typescript
+handleSteps: function* () {
+  // Spawn 3 file-pickers + 1 researcher in parallel
+  const { toolResult } = yield {
+    toolName: 'spawn_agents',
+    input: {
+      agents: [
+        { agent_type: 'file-picker', prompt: 'Find auth code' },
+        { agent_type: 'file-picker', prompt: 'Find tests' },
+        { agent_type: 'file-picker', prompt: 'Find config' },
+        { agent_type: 'researcher-web', prompt: 'OAuth 2.0 docs' },
+      ],
+    },
+  }
+
+  // All agents run simultaneously
+  // Process results...
+}
+```
+
+### Pattern 3: Conditional Spawning
+
+Spawn agents based on conditions:
+
+```typescript
+handleSteps: function* ({ params }) {
+  const agents: any[] = []
+
+  if (params?.needsResearch) {
+    agents.push({
+      agent_type: 'researcher-web',
+      prompt: params.researchQuery,
+    })
+  }
+
+  if (params?.needsFiles) {
+    agents.push({
+      agent_type: 'file-picker',
+      prompt: params.fileQuery,
+    })
+  }
+
+  if (agents.length > 0) {
+    yield {
+      toolName: 'spawn_agents',
+      input: { agents },
+    }
+  }
+
+  yield 'STEP_ALL'
+}
+```
+
+### Pattern 4: Iterative Refinement
+
+Spawn agents in a loop:
+
+```typescript
+handleSteps: function* ({ logger }) {
+  let iteration = 0
+  const maxIterations = 3
+
+  while (iteration < maxIterations) {
+    logger.info(`Iteration ${iteration + 1}`)
+
+    // Generate implementation
+    yield {
+      toolName: 'spawn_agents',
+      input: {
+        agents: [{ agent_type: 'editor', prompt: 'Implement feature' }],
+      },
+    }
+
+    // Review implementation
+    const { toolResult } = yield {
+      toolName: 'spawn_agents',
+      input: {
+        agents: [{ agent_type: 'code-reviewer', prompt: 'Review code' }],
+      },
+    }
+
+    // Check if review passed
+    const reviewPassed = checkReview(toolResult)
+    if (reviewPassed) break
+
+    iteration++
+  }
+}
+```
+
+## Passing Data Between Agents
+
+### Via Prompt
+
+Pass simple data in the prompt:
+
+```typescript
+const fileName = 'auth.ts'
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [{
+      agent_type: 'editor',
+      prompt: `Edit ${fileName} to add validation`,
+    }],
+  },
+}
+```
+
+### Via Params
+
+Pass structured data in params:
+
+```typescript
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [{
+      agent_type: 'general-agent',
+      prompt: 'Analyze these files',
+      params: {
+        filePaths: ['src/auth.ts', 'src/user.ts'],
+        maxResults: 10,
+      },
+    }],
+  },
+}
+```
+
+### Via Message History
+
+Agents with `includeMessageHistory: true` see the full conversation:
+
+```typescript
+// editor.ts
+const definition: AgentDefinition = {
+  id: 'editor',
+  includeMessageHistory: true,  // Sees parent's conversation
+  spawnerPrompt: 'Do not specify an input prompt; it inherits the entire conversation context.',
+}
+```
+
+Spawn without prompt:
+
+```typescript
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [
+      { agent_type: 'editor' },  // No prompt needed
+    ],
+  },
+}
+```
+
+### Via Shared Context
+
+Read files in parent, child can access them:
+
+```typescript
+handleSteps: function* () {
+  // Parent reads files
+  yield {
+    toolName: 'read_files',
+    input: { paths: ['config.json'] },
+  }
+
+  // Child with includeMessageHistory can see them
+  yield {
+    toolName: 'spawn_agents',
+    input: {
+      agents: [{ agent_type: 'editor' }],
+    },
+  }
+}
+```
+
+## Processing Subagent Results
+
+### Extract Last Message
+
+```typescript
+const { toolResult } = yield {
+  toolName: 'spawn_agents',
+  input: { agents: [{ agent_type: 'thinker', prompt: 'Think about this' }] },
+}
+
+function extractLastMessage(results: any[]): string {
+  const jsonResult = results?.find((r) => r.type === 'json')
+  const agentOutput = jsonResult?.value?.[0]?.value
+  
+  if (agentOutput?.type === 'lastMessage') {
+    const messages = agentOutput.value
+    const lastMsg = messages[messages.length - 1]
+    if (lastMsg?.role === 'assistant') {
+      const textContent = lastMsg.content.find((c: any) => c.type === 'text')
+      return textContent?.text ?? ''
+    }
+  }
+  return ''
+}
+
+const result = extractLastMessage(toolResult)
+```
+
+### Extract Structured Output
+
+```typescript
+const { toolResult } = yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [{
+      agent_type: 'thinker',
+      prompt: 'Analyze this',
+    }],
+  },
+}
+
+const jsonResult = toolResult?.find((r) => r.type === 'json')
+const output = jsonResult?.value?.[0]?.value as {
+  message: string
+  confidence: number
+}
+
+console.log(output.message)
+```
+
+### Handle Errors
+
+```typescript
+function extractError(results: any[]): string | null {
+  const jsonResult = results?.find((r) => r.type === 'json')
+  const agentOutput = jsonResult?.value?.[0]?.value
+  
+  if (agentOutput?.type === 'error') {
+    return agentOutput.message ?? agentOutput.value ?? 'Unknown error'
+  }
+  return null
+}
+
+const { toolResult } = yield { /* spawn agent */ }
+const error = extractError(toolResult)
+
+if (error) {
+  logger.error('Agent failed:', error)
+  yield {
+    type: 'STEP_TEXT',
+    text: `Error: ${error}`,
+  }
+  return
+}
+```
+
+## Best Practices
+
+### 1. Design Focused Agents
+
+Each agent should have one clear purpose:
+
+- **file-picker**: Find files
+- **code-searcher**: Search code
+- **editor**: Edit files
+- **code-reviewer**: Review changes
+- **researcher-web**: Search web
+
+### 2. Use spawnerPrompt
+
+Help parent agents understand when to spawn your agent:
+
+```typescript
+spawnerPrompt: 'Spawn to find relevant files in a codebase. Outputs up to 12 file paths. Cannot do string searches, but does fuzzy search. Unless you know which directories are relevant, omit the directories parameter.'
+```
+
+### 3. Design Clear Input Schemas
+
+Make it easy to spawn your agent:
+
+```typescript
+inputSchema: {
+  prompt: {
+    type: 'string',
+    description: 'What you want to find',
+  },
+  params: {
+    type: 'object',
+    properties: {
+      directories: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Optional directories to search',
+      },
+    },
+  },
+}
+```
+
+### 4. Spawn Agents in Parallel
+
+Maximize throughput:
+
+```typescript
+// Good: Parallel
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [
+      { agent_type: 'file-picker', prompt: 'Find auth' },
+      { agent_type: 'file-picker', prompt: 'Find tests' },
+      { agent_type: 'researcher-web', prompt: 'Search docs' },
+    ],
+  },
+}
+
+// Bad: Sequential (slower)
+for (const query of queries) {
+  yield {
+    toolName: 'spawn_agents',
+    input: { agents: [{ agent_type: 'file-picker', prompt: query }] },
+  }
+}
+```
+
+### 5. Handle Agent Failures
+
+Always check for errors:
+
+```typescript
+const { toolResult } = yield { /* spawn */ }
+const error = extractError(toolResult)
+if (error) {
+  // Handle gracefully
+  logger.error(error)
+  return
+}
+```
+
+### 6. Use Context Wisely
+
+- Set `includeMessageHistory: true` only when needed
+- Pre-read files in parent if multiple children need them
+- Use `inheritParentSystemPrompt` for prompt caching
+
+## Agent Composition Examples
+
+### Research → Implement → Review
+
+```typescript
+spawnableAgents: ['researcher-web', 'file-picker', 'editor', 'code-reviewer']
+
+handleSteps: function* () {
+  // 1. Research
+  yield {
+    toolName: 'spawn_agents',
+    input: {
+      agents: [
+        { agent_type: 'researcher-web', prompt: 'Find OAuth best practices' },
+        { agent_type: 'file-picker', prompt: 'Find auth files' },
+      ],
+    },
+  }
+
+  // 2. Implement
+  yield {
+    toolName: 'spawn_agents',
+    input: {
+      agents: [{ agent_type: 'editor' }],  // Uses conversation history
+    },
+  }
+
+  // 3. Review
+  yield {
+    toolName: 'spawn_agents',
+    input: {
+      agents: [{ agent_type: 'code-reviewer' }],
+    },
+  }
+}
+```
+
+### Multi-Agent Exploration
+
+```typescript
+handleSteps: function* () {
+  // Spawn 5 file-pickers to explore different areas
+  yield {
+    toolName: 'spawn_agents',
+    input: {
+      agents: [
+        { agent_type: 'file-picker', prompt: 'Find frontend code' },
+        { agent_type: 'file-picker', prompt: 'Find backend API' },
+        { agent_type: 'file-picker', prompt: 'Find database schemas' },
+        { agent_type: 'file-picker', prompt: 'Find tests' },
+        { agent_type: 'file-picker', prompt: 'Find documentation' },
+      ],
+    },
+  }
+
+  // AI analyzes all results
+  yield 'STEP'
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Generators" icon="gears" href="/agents/generators">
+    Master handleSteps for complex workflows
+  </Card>
+  <Card title="Publishing" icon="cloud-arrow-up" href="/agents/publishing">
+    Share your composed agents
+  </Card>
+</CardGroup>

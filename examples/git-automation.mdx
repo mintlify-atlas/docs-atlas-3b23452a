@@ -1,0 +1,464 @@
+---
+title: "Git Automation"
+description: "Automate git workflows with Codebuff - intelligent commits, code review, and git operations"
+---
+
+## Overview
+
+Codebuff can automate git workflows by analyzing changes, creating meaningful commits, reviewing code, and managing git operations. This guide shows real-world examples of git automation.
+
+## Basic Git Committer
+
+Here's the git committer example from the README - it creates intelligent commits:
+
+```typescript
+export default {
+  id: 'git-committer',
+  displayName: 'Git Committer',
+  model: 'openai/gpt-5-nano',
+  toolNames: ['read_files', 'run_terminal_command', 'end_turn'],
+
+  instructionsPrompt:
+    'You create meaningful git commits by analyzing changes, reading relevant files for context, and crafting clear commit messages that explain the "why" behind changes.',
+
+  async *handleSteps() {
+    // Analyze what changed
+    yield { tool: 'run_terminal_command', command: 'git diff' }
+    yield { tool: 'run_terminal_command', command: 'git log --oneline -5' }
+
+    // Stage files and create commit with good message
+    yield 'STEP_ALL'
+  },
+}
+```
+
+## Advanced Git Committer
+
+A more sophisticated version with better context gathering:
+
+```typescript
+import type {
+  AgentDefinition,
+  AgentStepContext,
+  ToolCall,
+} from '@codebuff/sdk'
+
+const gitCommitterAgent: AgentDefinition = {
+  id: 'git-committer',
+  displayName: 'Intelligent Git Committer',
+  model: 'anthropic/claude-4-sonnet-20250522',
+  toolNames: ['read_files', 'run_terminal_command', 'add_message', 'end_turn'],
+
+  inputSchema: {
+    prompt: {
+      type: 'string',
+      description: 'What changes to commit',
+    },
+  },
+
+  spawnerPrompt:
+    'Spawn when you need to commit code changes to git with an appropriate commit message',
+
+  systemPrompt:
+    'You are an expert software developer. Your job is to create a git commit with a really good commit message.',
+
+  instructionsPrompt:
+    'Follow the steps to create a good commit: analyze changes with git diff and git log, read relevant files for context, stage appropriate files, analyze changes, and create a commit with proper formatting.',
+
+  handleSteps: function* ({ agentState, prompt, params }: AgentStepContext) {
+    // Step 1: Run git diff and git log to analyze changes
+    yield {
+      toolName: 'run_terminal_command',
+      input: {
+        command: 'git diff',
+        process_type: 'SYNC',
+        timeout_seconds: 30,
+      },
+    } satisfies ToolCall
+
+    yield {
+      toolName: 'run_terminal_command',
+      input: {
+        command: 'git log --oneline -10',
+        process_type: 'SYNC',
+        timeout_seconds: 30,
+      },
+    } satisfies ToolCall
+
+    // Step 2: Guide AI to read relevant files
+    yield {
+      toolName: 'add_message',
+      input: {
+        role: 'assistant',
+        content:
+          "I've analyzed the git diff and recent commit history. Now I'll read any relevant files to better understand the context of these changes.",
+      },
+      includeToolCall: false,
+    } satisfies ToolCall
+
+    // Step 3: Let AI decide which files to read
+    yield 'STEP'
+
+    // Step 4: Guide AI to create the commit
+    yield {
+      toolName: 'add_message',
+      input: {
+        role: 'assistant',
+        content:
+          "Now I'll analyze the changes and create a commit with a good commit message.",
+      },
+      includeToolCall: false,
+    } satisfies ToolCall
+
+    yield 'STEP_ALL'
+  },
+}
+
+export default gitCommitterAgent
+```
+
+## Usage with SDK
+
+Use the git committer agent in your application:
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+import gitCommitterAgent from './.agents/git-committer'
+
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY,
+  cwd: process.cwd(),
+})
+
+// Create an intelligent commit
+const result = await client.run({
+  agent: 'git-committer',
+  agentDefinitions: [gitCommitterAgent],
+  prompt: 'Commit the authentication improvements',
+  handleEvent: (event) => {
+    if (event.type === 'text_response') {
+      console.log(event.text)
+    }
+  },
+})
+
+if (result.output.type === 'success') {
+  console.log('✅ Commit created successfully!')
+}
+```
+
+## Git Diff Reviewer
+
+An agent that reviews code changes before committing:
+
+```typescript
+import type { AgentDefinition } from '@codebuff/sdk'
+
+const diffReviewerAgent: AgentDefinition = {
+  id: 'diff-reviewer',
+  displayName: 'Git Diff Reviewer',
+  model: 'anthropic/claude-4-sonnet-20250522',
+  toolNames: ['read_files', 'run_terminal_command'],
+
+  spawnerPrompt: 'Spawn when you need to review code changes in the git diff',
+
+  instructionsPrompt: `
+Execute the following steps:
+1. Run git diff to see all changes
+2. Read the files that have changed
+3. Review the changes for:
+   - Bugs and potential issues
+   - Code quality and style
+   - Security vulnerabilities
+   - Performance concerns
+4. Provide actionable feedback
+  `,
+}
+
+export default diffReviewerAgent
+```
+
+## Usage: Code Review
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+import diffReviewerAgent from './.agents/diff-reviewer'
+
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY,
+  cwd: process.cwd(),
+})
+
+const result = await client.run({
+  agent: 'diff-reviewer',
+  agentDefinitions: [diffReviewerAgent],
+  prompt: 'Review my changes for the authentication feature',
+  handleEvent: (event) => {
+    console.log('Review progress:', event)
+  },
+})
+
+console.log('\nReview complete!')
+console.log(result.output)
+```
+
+## Commit Message Generator (SDK Example)
+
+A simple script that generates commit messages:
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+
+const SAMPLE_DIFF = `
+diff --git a/src/utils.ts b/src/utils.ts
+index 1234567..abcdefg 100644
+--- a/src/utils.ts
++++ b/src/utils.ts
+@@ -1,5 +1,6 @@
+ export function greet(name: string): string {
+-  return \`Hello, \${name}!\`;
++  const greeting = \`Hello, \${name}!\`;
++  console.log(greeting);
++  return greeting;
+ }
+`.trim()
+
+async function main() {
+  const client = new CodebuffClient({
+    apiKey: process.env.CODEBUFF_API_KEY!,
+  })
+
+  console.log('📝 Generating commit message...\n')
+  console.log('Diff:')
+  console.log('```')
+  console.log(SAMPLE_DIFF)
+  console.log('```\n')
+  console.log('Generated commit message:\n')
+
+  const result = await client.run({
+    agent: 'codebuff/base2@latest',
+    prompt: `Generate a concise git commit message for this diff:\n\n${SAMPLE_DIFF}`,
+    handleStreamChunk: (chunk) => {
+      if (typeof chunk === 'string') {
+        process.stdout.write(chunk)
+      }
+    },
+  })
+
+  console.log('\n')
+
+  if (result.output.type === 'error') {
+    console.error('Error:', result.output.message)
+    process.exit(1)
+  }
+
+  console.log('✅ Done!')
+}
+
+main().catch(console.error)
+```
+
+## Git Pre-commit Hook
+
+Automatically review changes before committing:
+
+```bash
+#!/bin/bash
+# .git/hooks/pre-commit
+
+# Run Codebuff diff reviewer
+node -e "
+const { CodebuffClient } = require('@codebuff/sdk');
+
+async function review() {
+  const client = new CodebuffClient({
+    apiKey: process.env.CODEBUFF_API_KEY,
+  });
+
+  const result = await client.run({
+    agent: 'codebuff/base2@latest',
+    prompt: 'Review the current git diff for issues. Fail if there are critical problems.',
+  });
+
+  if (result.output.type === 'error') {
+    console.error('❌ Code review failed:', result.output.message);
+    process.exit(1);
+  }
+  
+  console.log('✅ Code review passed!');
+}
+
+review();
+"
+```
+
+## Automated Branch Management
+
+An agent that manages git branches intelligently:
+
+```typescript
+import type { AgentDefinition, ToolCall } from '@codebuff/sdk'
+
+const branchManagerAgent: AgentDefinition = {
+  id: 'branch-manager',
+  displayName: 'Git Branch Manager',
+  model: 'anthropic/claude-4-sonnet-20250522',
+  toolNames: ['run_terminal_command', 'add_message'],
+
+  instructionsPrompt: `
+Manage git branches intelligently:
+1. Check current branch status
+2. Create feature branches with meaningful names
+3. Clean up merged branches
+4. Suggest branch naming conventions
+  `,
+
+  handleSteps: function* () {
+    // Check current branch
+    yield {
+      toolName: 'run_terminal_command',
+      input: {
+        command: 'git branch --list',
+        process_type: 'SYNC',
+      },
+    } satisfies ToolCall
+
+    // Check remote branches
+    yield {
+      toolName: 'run_terminal_command',
+      input: {
+        command: 'git branch -r',
+        process_type: 'SYNC',
+      },
+    } satisfies ToolCall
+
+    // Let AI analyze and take action
+    yield 'STEP_ALL'
+  },
+}
+
+export default branchManagerAgent
+```
+
+## Git Conflict Resolver
+
+Help resolve merge conflicts:
+
+```typescript
+const conflictResolverAgent: AgentDefinition = {
+  id: 'conflict-resolver',
+  displayName: 'Git Conflict Resolver',
+  model: 'anthropic/claude-4-sonnet-20250522',
+  toolNames: ['read_files', 'change_file', 'run_terminal_command'],
+
+  instructionsPrompt: `
+Help resolve git merge conflicts:
+1. Identify files with conflicts
+2. Read both versions of conflicting code
+3. Understand the intent of each change
+4. Suggest or apply resolutions
+5. Verify the resolution makes sense
+  `,
+
+  handleSteps: function* () {
+    // Find conflicted files
+    yield {
+      toolName: 'run_terminal_command',
+      input: {
+        command: 'git diff --name-only --diff-filter=U',
+        process_type: 'SYNC',
+      },
+    } satisfies ToolCall
+
+    // Let AI read and resolve conflicts
+    yield 'STEP_ALL'
+  },
+}
+```
+
+## Release Notes Generator
+
+Automatically generate release notes from commits:
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+
+async function generateReleaseNotes(
+  fromTag: string,
+  toTag: string = 'HEAD'
+) {
+  const client = new CodebuffClient({
+    apiKey: process.env.CODEBUFF_API_KEY!,
+    cwd: process.cwd(),
+  })
+
+  const result = await client.run({
+    agent: 'codebuff/base2@latest',
+    prompt: `Generate release notes from ${fromTag} to ${toTag}. 
+    
+    Run: git log ${fromTag}..${toTag} --oneline
+    
+    Group changes by category:
+    - Features
+    - Bug Fixes
+    - Performance
+    - Documentation
+    - Breaking Changes
+    
+    Format as markdown.`,
+    handleStreamChunk: (chunk) => {
+      if (typeof chunk === 'string') {
+        process.stdout.write(chunk)
+      }
+    },
+  })
+
+  return result
+}
+
+// Usage
+generateReleaseNotes('v1.0.0', 'v1.1.0')
+```
+
+## Best Practices
+
+1. **Read context**: Always read relevant files to understand changes
+2. **Check history**: Review recent commits to maintain consistency
+3. **Meaningful messages**: Explain the "why", not just the "what"
+4. **Follow conventions**: Respect the project's commit message format
+5. **Test before commit**: Ensure tests pass before creating commits
+6. **Stage selectively**: Only stage related changes together
+
+## Git Command Reference
+
+Common git commands to use in agents:
+
+```bash
+# View changes
+git status
+git diff
+git diff --cached
+git log --oneline -10
+
+# Stage and commit
+git add <files>
+git commit -m "message"
+
+# Branch management
+git branch
+git checkout -b <branch>
+
+# Review history
+git log --oneline --graph
+git show <commit>
+
+# Conflict resolution
+git diff --name-only --diff-filter=U
+git status --short
+```
+
+## Next Steps
+
+- [Build multi-step workflows](/examples/multi-step-workflow) for complex git operations
+- [Create custom tools](/examples/custom-tools) for git integrations
+- Explore [Codebuff CLI](https://codebuff.com/docs) for interactive git automation

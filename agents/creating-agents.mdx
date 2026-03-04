@@ -1,0 +1,156 @@
+---
+title: 'Creating Custom Agents'
+description: 'Learn how to create custom agents for Codebuff'
+---
+
+## Getting Started
+
+Codebuff agents are TypeScript modules that define specialized AI assistants. Each agent has a specific purpose, tools, and behavior patterns.
+
+## Using /init Command
+
+The `/init` command scaffolds the necessary files for creating custom agents:
+
+```bash
+# Initialize agent directory structure
+/init
+```
+
+This creates:
+- `.agents/` directory in your project root
+- `.agents/types/` with TypeScript definitions
+- Template files for your first agent
+
+## Agent File Structure
+
+A typical agent file looks like this:
+
+```typescript
+// .agents/my-agent.ts
+import type { AgentDefinition } from './types/agent-definition'
+
+const definition: AgentDefinition = {
+  id: 'my-agent',
+  displayName: 'My Custom Agent',
+  model: 'anthropic/claude-opus-4.6',
+  toolNames: ['read_files', 'write_file'],
+  instructionsPrompt: 'You are a helpful coding assistant.',
+}
+
+export default definition
+```
+
+### Required Files
+
+- **Agent definition file**: `.agents/your-agent.ts`
+- **Type definitions**: `.agents/types/agent-definition.ts` (auto-generated)
+- **Export**: Must use `export default` for the agent definition
+
+## Simple Agent Example
+
+Here's a complete example based on the `researcher-web` agent from the Codebuff source:
+
+```typescript
+import type { AgentDefinition, ToolCall } from './types/agent-definition'
+
+const definition: AgentDefinition = {
+  id: 'researcher-web',
+  publisher: 'codebuff',
+  model: 'google/gemini-3.1-flash-lite-preview',
+  displayName: 'Web Researcher',
+  
+  spawnerPrompt: 'Browses the web to find relevant information.',
+  
+  inputSchema: {
+    prompt: {
+      type: 'string',
+      description: 'A question you would like answered using web search',
+    },
+  },
+  
+  outputMode: 'last_message',
+  includeMessageHistory: false,
+  
+  toolNames: ['web_search'],
+  spawnableAgents: [],
+  
+  systemPrompt: `You are an expert researcher who can search the web to find relevant information.`,
+  
+  instructionsPrompt: `Provide comprehensive research on the user's prompt.
+Use web_search to find current information.
+Then, write up a concise report with key findings.`,
+  
+  handleSteps: function* ({ prompt }) {
+    const { toolResult } = yield {
+      toolName: 'web_search',
+      input: { query: prompt || '', depth: 'standard' },
+      includeToolCall: false,
+    } satisfies ToolCall<'web_search'>
+    
+    const results = (toolResult
+      ?.filter((r) => r.type === 'json')
+      ?.map((r) => r.value)?.[0] ?? {}) as {
+        result: string | undefined
+        errorMessage: string | undefined
+      }
+    
+    yield {
+      type: 'STEP_TEXT',
+      text: results.result ?? results.errorMessage ?? '',
+    }
+  },
+}
+
+export default definition
+```
+
+## Key Concepts
+
+### Agent ID
+
+The `id` field must:
+- Be unique within your project
+- Use lowercase letters, numbers, and hyphens only
+- Match the filename (e.g., `researcher-web.ts` → `id: 'researcher-web'`)
+
+### Model Selection
+
+Choose from [OpenRouter models](https://openrouter.ai/models):
+
+```typescript
+// Recommended models
+model: 'anthropic/claude-opus-4.6'     // Best quality
+model: 'openai/gpt-5.2'                // Fast reasoning
+model: 'google/gemini-3.1-flash-lite-preview' // Cost-effective
+```
+
+### Tools
+
+Specify which tools your agent can use:
+
+```typescript
+toolNames: [
+  'read_files',      // Read file contents
+  'write_file',      // Create/overwrite files
+  'str_replace',     // Edit files with replacements
+  'web_search',      // Search the web
+  'spawn_agents',    // Launch other agents
+]
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Definition" icon="book" href="/agents/agent-definition">
+    Complete reference for all agent properties
+  </Card>
+  <Card title="Generators" icon="gears" href="/agents/generators">
+    Learn about handleSteps and programmatic control
+  </Card>
+  <Card title="Spawning Agents" icon="sitemap" href="/agents/spawning-subagents">
+    Compose agents for complex workflows
+  </Card>
+  <Card title="Publishing" icon="cloud-arrow-up" href="/agents/publishing">
+    Share your agents in the Codebuff store
+  </Card>
+</CardGroup>

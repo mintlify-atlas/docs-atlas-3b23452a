@@ -1,0 +1,270 @@
+---
+title: RunOptions
+description: Configuration options for running Codebuff agents
+---
+
+## Overview
+
+`RunOptions` defines the configuration for executing a Codebuff agent. These options are passed to `client.run()` and control the agent's behavior, context, and execution parameters.
+
+## Type Definition
+
+```typescript
+type RunOptions = {
+  agent: string | AgentDefinition
+  prompt: string
+  content?: MessageContent[]
+  params?: Record<string, any>
+  previousRun?: RunState
+  extraToolResults?: ToolMessage[]
+  signal?: AbortSignal
+  costMode?: string
+}
+```
+
+## Properties
+
+<ParamField path="agent" type="string | AgentDefinition" required>
+  The agent to run.
+  
+  - Use `'base'` for the default Codebuff agent
+  - Use a custom agent ID (e.g., `'my-agent'`) if you defined custom agents
+  - Pass an inline [AgentDefinition](/api/agent-definition) object for one-off agent configurations
+  
+  Examples:
+  ```typescript
+  // Default agent
+  agent: 'base'
+  
+  // Custom agent by ID
+  agent: 'code-reviewer'
+  
+  // Inline agent definition
+  agent: {
+    id: 'temp-agent',
+    displayName: 'Temporary Agent',
+    model: 'anthropic/claude-sonnet-4.5',
+    toolNames: ['read_files', 'code_search'],
+    instructionsPrompt: 'You are a helpful assistant.'
+  }
+  ```
+</ParamField>
+
+<ParamField path="prompt" type="string" required>
+  The user prompt describing what you want the agent to do.
+  
+  This is the main instruction to the agent. Be clear and specific about the task.
+  
+  Examples:
+  ```typescript
+  prompt: 'List all TypeScript files in the src directory'
+  prompt: 'Find all TODO comments in the codebase'
+  prompt: 'Refactor the authentication module to use async/await'
+  ```
+</ParamField>
+
+<ParamField path="content" type="MessageContent[]">
+  Content array for multimodal messages supporting text and images.
+  
+  Use this when you need to include images or structured content beyond plain text.
+  
+  ```typescript
+  type MessageContent = TextContent | ImageContent
+  
+  type TextContent = {
+    type: 'text'
+    text: string
+  }
+  
+  type ImageContent = {
+    type: 'image'
+    image: string      // base64 encoded image
+    mediaType: string  // e.g., 'image/png', 'image/jpeg'
+  }
+  ```
+  
+  Example:
+  ```typescript
+  content: [
+    { type: 'text', text: 'Analyze this UI design:' },
+    { 
+      type: 'image', 
+      image: 'iVBORw0KGgoAAAANSUhEUgAA...', // base64
+      mediaType: 'image/png'
+    }
+  ]
+  ```
+</ParamField>
+
+<ParamField path="params" type="Record<string, any>">
+  Additional parameters for the agent as a JSON object.
+  
+  Most agents don't use this field, but custom agents can define an `inputSchema.params` to accept structured input beyond the prompt string.
+  
+  Example with a custom agent that expects parameters:
+  ```typescript
+  params: {
+    maxFiles: 10,
+    filePattern: '*.ts',
+    excludeDirs: ['node_modules', 'dist']
+  }
+  ```
+</ParamField>
+
+<ParamField path="previousRun" type="RunState">
+  JSON state returned from a previous `run()` call.
+  
+  Use this to continue a conversation or maintain session context across multiple agent invocations. The agent will have access to the full conversation history and accumulated context.
+  
+  Example:
+  ```typescript
+  const firstRun = await client.run({
+    agent: 'base',
+    prompt: 'Read package.json'
+  })
+  
+  const secondRun = await client.run({
+    agent: 'base',
+    prompt: 'What dependencies does it have?',
+    previousRun: firstRun  // Maintains conversation context
+  })
+  ```
+  
+  <Expandable title="RunState structure">
+    ```typescript
+    type RunState = {
+      sessionState?: SessionState  // Opaque state object
+      output: AgentOutput           // Agent's output result
+    }
+    ```
+  </Expandable>
+</ParamField>
+
+<ParamField path="extraToolResults" type="ToolMessage[]">
+  Additional tool result messages to inject into the conversation.
+  
+  This is an advanced feature for programmatically adding tool execution results to the agent's context without actually running the tools.
+  
+  ```typescript
+  type ToolMessage = {
+    role: 'tool'
+    content: ToolResultOutput[]
+    toolName: string
+    toolCallId: string
+  }
+  ```
+</ParamField>
+
+<ParamField path="signal" type="AbortSignal">
+  AbortSignal for canceling the agent run.
+  
+  Use with `AbortController` to provide cancellation support. When aborted, the run will terminate and return an error output.
+  
+  Example:
+  ```typescript
+  const controller = new AbortController()
+  
+  // Start the run
+  const runPromise = client.run({
+    agent: 'base',
+    prompt: 'Long running task',
+    signal: controller.signal
+  })
+  
+  // Cancel after 30 seconds
+  setTimeout(() => controller.abort(), 30000)
+  
+  try {
+    const result = await runPromise
+    // result.output.type will be 'error' with abort message
+  } catch (error) {
+    console.error('Run was aborted:', error)
+  }
+  ```
+</ParamField>
+
+<ParamField path="costMode" type="string">
+  Cost optimization mode for the run.
+  
+  - `'normal'` (default): Standard execution
+  - Other modes may be available depending on your Codebuff plan
+  
+  This can help control costs for high-volume or experimental workloads.
+</ParamField>
+
+## Combined with CodebuffClientOptions
+
+When calling `client.run()`, you can override any `CodebuffClientOptions` on a per-run basis:
+
+```typescript
+const client = new CodebuffClient({
+  apiKey: 'your-key',
+  maxAgentSteps: 10
+})
+
+// Override maxAgentSteps for this specific run
+const result = await client.run({
+  agent: 'base',
+  prompt: 'Complex task',
+  maxAgentSteps: 50,  // Override client default
+  env: {              // Add run-specific environment
+    DEBUG: 'true'
+  }
+})
+```
+
+## Complete Example
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY,
+  cwd: process.cwd(),
+  handleEvent: (event) => {
+    if (event.type === 'assistant_message') {
+      console.log('Agent:', event.content)
+    }
+  }
+})
+
+// First interaction
+const result1 = await client.run({
+  agent: 'base',
+  prompt: 'Analyze the error handling in src/auth.ts',
+  maxAgentSteps: 20
+})
+
+if (result1.output.type === 'success') {
+  // Continue the conversation
+  const result2 = await client.run({
+    agent: 'base',
+    prompt: 'Can you improve it?',
+    previousRun: result1,  // Maintains context
+    maxAgentSteps: 30
+  })
+  
+  console.log('Final result:', result2.output.message)
+}
+```
+
+## Return Type
+
+The `run()` method returns a `Promise<RunState>`:
+
+```typescript
+type RunState = {
+  sessionState?: SessionState  // Pass to next run() call
+  output: AgentOutput         // The result
+}
+
+type AgentOutput = 
+  | { type: 'success', message: string }
+  | { type: 'error', message: string, statusCode?: number }
+```
+
+## Related Types
+
+- [CodebuffClient](/api/codebuff-client) - Main client class
+- [AgentDefinition](/api/agent-definition) - Custom agent configuration
+- [MessageContent](#properties) - Multimodal content types

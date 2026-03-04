@@ -1,0 +1,522 @@
+---
+title: CLI Commands
+description: Complete reference of all Codebuff CLI commands
+---
+
+The Codebuff CLI provides a rich set of slash commands for controlling the interface, managing agents, and accessing features. Commands start with `/` and can be typed in the input field.
+
+## Quick Reference
+
+<CardGroup cols={3}>
+  <Card title="/help" icon="circle-question">
+    Show help and shortcuts
+  </Card>
+  <Card title="/init" icon="folder-plus">
+    Initialize project
+  </Card>
+  <Card title="/new" icon="file-plus">
+    Start new conversation
+  </Card>
+  <Card title="/publish" icon="upload">
+    Publish custom agents
+  </Card>
+  <Card title="/usage" icon="chart-line">
+    View credit usage
+  </Card>
+  <Card title="/bash" icon="terminal">
+    Execute shell commands
+  </Card>
+</CardGroup>
+
+## Session Management
+
+### /new (aliases: /n, /clear, /c, /reset)
+
+Start a new conversation, clearing the current chat history.
+
+```bash
+/new
+```
+
+**With initial prompt:**
+
+Clear the conversation and immediately send a new prompt:
+
+```bash
+/new refactor the database connection logic
+```
+
+### /history (aliases: /chats)
+
+Browse and continue previous conversations.
+
+```bash
+/history
+```
+
+Use arrow keys to select a conversation and press Enter to continue it.
+
+### /exit (aliases: /quit, /q)
+
+Exit the CLI application.
+
+```bash
+/exit
+```
+
+<Note>
+  You can also use `Ctrl+D` to exit the CLI.
+</Note>
+
+## Project Setup
+
+### /init
+
+Initialize your project with Codebuff configuration files.
+
+```bash
+/init
+```
+
+This command creates:
+
+- `knowledge.md` - Project context file for giving agents information about your project
+- `.agents/` - Directory for custom agent definitions
+- `.agents/types/` - TypeScript type definitions:
+  - `agent-definition.ts` - AgentDefinition interface
+  - `tools.ts` - Tool type definitions
+  - `util-types.ts` - Utility types
+
+**What gets created:**
+
+```
+project/
+├── knowledge.md
+└── .agents/
+    └── types/
+        ├── agent-definition.ts
+        ├── tools.ts
+        └── util-types.ts
+```
+
+The `knowledge.md` template includes sections for:
+- Quickstart commands (setup, dev, test)
+- Architecture overview
+- Coding conventions
+- Patterns to follow and avoid
+
+<Tip>
+  Fill out `knowledge.md` with project-specific details to help agents understand your codebase better.
+</Tip>
+
+## Agent Management
+
+### /publish
+
+Publish custom agents from your `.agents/` directory to the Codebuff agent store.
+
+```bash
+/publish
+```
+
+This opens an interactive UI where you can:
+1. Select which agents to publish
+2. Review agent details
+3. Confirm publication
+
+**Direct publish:**
+
+Publish specific agents by ID or display name:
+
+```bash
+/publish my-agent
+/publish my-agent another-agent
+```
+
+**Requirements:**
+- You must be logged in
+- Agents must have a valid `publisher` field
+- Agents must be in a `.agents/` directory
+
+**Success output:**
+
+```
+✅ Successfully published:
+  - My Custom Agent (username/my-agent@1.0.0)
+```
+
+**Error handling:**
+
+The command provides detailed error messages:
+- Missing publisher field
+- Publisher not found or no access
+- Validation errors
+
+<Warning>
+  Published agents are publicly available in the agent store. Make sure not to include sensitive information.
+</Warning>
+
+### Agent Mode Commands
+
+Switch between different agent modes:
+
+#### /mode:default
+
+Switch to DEFAULT mode (balanced performance).
+
+```bash
+/mode:default
+```
+
+**With prompt:**
+
+```bash
+/mode:default optimize the image processing pipeline
+```
+
+#### /mode:free
+
+Switch to FREE mode (fast, economical).
+
+```bash
+/mode:free
+```
+
+#### /mode:max
+
+Switch to MAX mode (maximum capability).
+
+```bash
+/mode:max
+```
+
+#### /mode:plan
+
+Switch to PLAN mode (planning and strategy).
+
+```bash
+/mode:plan
+```
+
+## Shell Integration
+
+### /bash (alias: !)
+
+Enter bash mode to execute shell commands.
+
+```bash
+/bash
+```
+
+Once in bash mode, type commands normally (without the `!` prefix). Press `Escape` to exit bash mode.
+
+**Direct execution:**
+
+Execute a command immediately:
+
+```bash
+/bash npm test
+!git status
+!ls -la
+```
+
+**How it works:**
+
+- Commands run in the current working directory
+- Output is captured and displayed in the chat
+- Exit codes are shown
+- Environment variables from your shell are preserved
+- Commands run synchronously (you see output as it streams)
+
+**Example:**
+
+```bash
+!npm run build
+```
+
+```
+$ npm run build
+> project@1.0.0 build
+> tsc
+
+Completed in 2.3s
+```
+
+## Account & Usage
+
+### /usage (alias: /credits)
+
+View your current credit usage and remaining balance.
+
+```bash
+/usage
+```
+
+Displays:
+- Current credit balance
+- Usage this month
+- Subscription tier (if applicable)
+- Renewal date
+
+### /subscribe (aliases: /strong, /sub, /buy-credits)
+
+Open your browser to the subscription page.
+
+```bash
+/subscribe
+```
+
+This opens `https://codebuff.com/subscribe` in your default browser.
+
+### /refer-friends (aliases: /referral, /redeem)
+
+Enter or redeem referral codes.
+
+```bash
+/refer-friends
+```
+
+Enters referral mode where you can paste a code. Press `Escape` to exit.
+
+**Direct redemption:**
+
+```bash
+/refer-friends ABC123
+```
+
+### /login (alias: /signin)
+
+Notifies you that you're already logged in. To switch accounts, use `/logout`.
+
+```bash
+/login
+```
+
+### /logout (alias: /signout)
+
+Log out of your Codebuff account.
+
+```bash
+/logout
+```
+
+This will:
+1. Stop any running agents
+2. Clear your authentication token
+3. Return you to the login screen
+
+## Help & Information
+
+### /help (aliases: /h, /?)
+
+Show the help banner with keyboard shortcuts and available commands.
+
+```bash
+/help
+```
+
+The help screen shows:
+- Common keyboard shortcuts
+- Command list with descriptions
+- Tips for effective usage
+
+Press `Escape` or `Backspace` to close the help screen.
+
+### /feedback (aliases: /bug, /report)
+
+Submit feedback or report bugs.
+
+```bash
+/feedback
+```
+
+Opens a feedback form where you can:
+- Describe the issue
+- Select feedback type
+- Include conversation context
+
+**Pre-filled feedback:**
+
+```bash
+/feedback The image attachment feature isn't working
+```
+
+## Attachments
+
+### /image (aliases: /img, /attach)
+
+Attach images to your prompts.
+
+```bash
+/image
+```
+
+Enters image mode where you can:
+- Type a file path
+- Press `Ctrl+V` to paste from clipboard
+- Drag and drop images (in supported terminals)
+
+**Direct path:**
+
+```bash
+/image ~/Screenshots/design.png
+/image ./wireframe.jpg
+```
+
+**Supported formats:**
+- PNG, JPEG, GIF, WebP
+- Maximum 5MB per image
+- Multiple images per prompt
+
+**Use cases:**
+
+```bash
+/image design.png
+Implement this UI design using React and Tailwind
+```
+
+## Advanced Commands
+
+### /review
+
+Request a code review from the GPT-5 Agent.
+
+```bash
+/review
+```
+
+Opens a file selector where you can choose files to review.
+
+**Direct review:**
+
+```bash
+/review Check for security issues in the authentication code
+```
+
+This sends: `@GPT-5 Agent Please review: Check for security issues in the authentication code`
+
+### /theme:toggle
+
+Toggle between light and dark themes.
+
+```bash
+/theme:toggle
+```
+
+<Note>
+  The CLI automatically detects your terminal's theme on startup. Use this command to override the detection.
+</Note>
+
+### /ads:enable
+
+Enable promotional messages in the CLI.
+
+```bash
+/ads:enable
+```
+
+### /ads:disable
+
+Disable promotional messages in the CLI.
+
+```bash
+/ads:disable
+```
+
+## Command Arguments
+
+Many commands accept arguments that modify their behavior:
+
+<AccordionGroup>
+  <Accordion title="Commands without arguments" icon="circle">
+    These commands don't accept arguments. Any text after the command is ignored:
+    
+    - `/help`
+    - `/init`
+    - `/exit`
+    - `/login`
+    - `/logout`
+    - `/usage`
+    - `/subscribe`
+    - `/history`
+    - `/theme:toggle`
+    - `/ads:enable`
+    - `/ads:disable`
+  </Accordion>
+  
+  <Accordion title="Commands with optional arguments" icon="circle-half-stroke">
+    These commands work with or without arguments:
+    
+    - `/new [prompt]` - Start new chat, optionally with a prompt
+    - `/bash [command]` - Enter bash mode or execute command
+    - `/image [path]` - Enter image mode or attach specific file
+    - `/feedback [text]` - Open feedback form, optionally pre-filled
+    - `/refer-friends [code]` - Enter referral mode or redeem code
+    - `/review [instructions]` - Open file picker or review with instructions
+    - `/mode:* [prompt]` - Switch mode, optionally with a prompt
+  </Accordion>
+  
+  <Accordion title="Commands requiring arguments" icon="circle-dot">
+    These commands require at least one argument:
+    
+    - `/publish <agent-id> [agent-id...]` - Publish one or more agents
+  </Accordion>
+</AccordionGroup>
+
+## Command Aliases
+
+Many commands have shorter aliases for faster typing:
+
+| Full Command | Aliases |
+|--------------|--------|
+| `/help` | `/h`, `/?` |
+| `/new` | `/n`, `/clear`, `/c`, `/reset` |
+| `/exit` | `/quit`, `/q` |
+| `/bash` | `!` |
+| `/usage` | `/credits` |
+| `/subscribe` | `/strong`, `/sub`, `/buy-credits` |
+| `/refer-friends` | `/referral`, `/redeem` |
+| `/feedback` | `/bug`, `/report` |
+| `/image` | `/img`, `/attach` |
+| `/history` | `/chats` |
+| `/login` | `/signin` |
+| `/logout` | `/signout` |
+
+## Command History
+
+The CLI maintains a history of your commands:
+
+- Press `Up/Down` arrows to navigate history
+- Press `Ctrl+R` to search history
+- History persists across sessions
+- Separate history for bash commands
+
+## Tips
+
+<Tip>
+  **Command completion:** Start typing `/` and press `Tab` to see command suggestions.
+</Tip>
+
+<Tip>
+  **Bash shortcut:** Use `!` instead of `/bash` for quicker shell command execution.
+</Tip>
+
+<Tip>
+  **Mode + prompt:** Combine mode switches with prompts to change modes and start a task in one command.
+</Tip>
+
+<Tip>
+  **Escape to exit:** Press `Escape` to exit most special input modes and return to normal chat.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/cli/configuration">
+    Configure environment variables and settings
+  </Card>
+  
+  <Card title="Workflows" icon="diagram-project" href="/cli/workflows">
+    Learn common CLI workflows and best practices
+  </Card>
+</CardGroup>

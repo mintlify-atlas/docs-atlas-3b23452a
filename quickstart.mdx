@@ -1,80 +1,169 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart
+description: Get from zero to your first working Codebuff example in 5 minutes
 ---
 
-## Get started in three steps
+Get started with Codebuff in minutes. This guide will walk you through installation, setup, and your first coding task.
 
-Get your documentation site running locally and make your first customization.
+## Getting started
 
-### Step 1: Set up your local environment
+<Steps>
+  <Step title="Install the CLI">
+    Install Codebuff globally using npm:
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```bash
+    npm install -g codebuff
+    ```
 
-### Step 2: Deploy your changes
+    <Note>
+      Codebuff requires Node.js 18 or higher. Check your version with `node --version`.
+    </Note>
+  </Step>
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+  <Step title="Navigate to your project">
+    Change to your project directory:
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    ```bash
+    cd your-project
+    ```
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    <Note>
+      Codebuff works best with Git repositories, but it's not required.
+    </Note>
+  </Step>
 
-### Step 3: Go live
+  <Step title="Start Codebuff">
+    Launch the interactive CLI:
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    ```bash
+    codebuff
+    ```
 
-## Next steps
+    The first time you run Codebuff, you'll be prompted to authenticate with your Codebuff account.
+  </Step>
 
-Now that you have your docs running, explore these key features:
+  <Step title="Give your first instruction">
+    Try asking Codebuff to make a change to your codebase:
 
-<CardGroup cols={2}>
+    ```
+    Add error handling to the user registration function
+    ```
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
+    Codebuff will:
+    - Analyze your codebase structure
+    - Find relevant files
+    - Make precise edits
+    - Validate the changes
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+    <Note>
+      You can also use the `/init` command to create a `knowledge.md` file and `.agents/` directory for custom agent development.
+    </Note>
+  </Step>
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+  <Step title="Review and iterate">
+    After Codebuff completes its task, review the changes:
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+    ```bash
+    git diff
+    ```
 
-</CardGroup>
+    Continue the conversation with follow-up instructions:
+
+    ```
+    Also add input validation for the email field
+    ```
+
+    Codebuff maintains context from previous exchanges in the session.
+  </Step>
+</Steps>
+
+## First task examples
+
+Here are some examples to try with Codebuff:
+
+<CodeGroup>
+```bash Fix bugs
+codebuff
+> Fix the SQL injection vulnerability in user registration
+```
+
+```bash Add features
+codebuff
+> Add rate limiting to all API endpoints
+```
+
+```bash Refactor code
+codebuff
+> Refactor the database connection code for better performance
+```
+
+```bash Add tests
+codebuff
+> Add unit tests for the authentication module
+```
+</CodeGroup>
+
+## Using with the SDK
+
+If you want to integrate Codebuff into your application, install the SDK instead:
+
+```bash
+npm install @codebuff/sdk
+```
+
+Then use it in your code:
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY,
+  cwd: process.cwd(),
+})
+
+const result = await client.run({
+  agent: 'base',
+  prompt: 'Add error handling to all API endpoints',
+  handleEvent: (event) => {
+    console.log('Progress:', event)
+  },
+})
+```
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Get your API key from [codebuff.com/api-keys](https://www.codebuff.com/api-keys).
 </Note>
+
+## What's next?
+
+<CardGroup cols={2}>
+  <Card title="CLI Guide" icon="terminal" href="/cli/overview">
+    Learn advanced CLI commands and workflows
+  </Card>
+  <Card title="SDK Guide" icon="code" href="/sdk/overview">
+    Build Codebuff into your applications
+  </Card>
+  <Card title="Agent Development" icon="robot" href="/agents/creating-agents">
+    Create custom agents with specialized workflows
+  </Card>
+  <Card title="Custom Tools" icon="wrench" href="/sdk/custom-tools">
+    Extend Codebuff with your own tools
+  </Card>
+</CardGroup>
+
+## Need help?
+
+<CardGroup cols={2}>
+  <Card title="Discord Community" icon="discord" href="https://codebuff.com/discord">
+    Get help from the community
+  </Card>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/CodebuffAI/codebuff/issues">
+    Report bugs or request features
+  </Card>
+  <Card title="Email Support" icon="envelope" href="mailto:support@codebuff.com">
+    Contact the team directly
+  </Card>
+  <Card title="Documentation" icon="book" href="https://codebuff.com/docs">
+    Browse the full documentation
+  </Card>
+</CardGroup>

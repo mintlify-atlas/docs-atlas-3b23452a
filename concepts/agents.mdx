@@ -1,0 +1,495 @@
+---
+title: Agents
+description: Understanding Codebuff's specialized AI agents and when to use them
+---
+
+# Agents
+
+Codebuff uses **specialized AI agents** to break down complex coding tasks into manageable pieces. Each agent is optimized for a specific purpose, using the right model and tools for the job.
+
+## What is an Agent?
+
+An agent is a self-contained AI worker that:
+
+- Has a **specific purpose** (e.g., finding files, editing code)
+- Uses a **selected AI model** optimized for its task
+- Has access to **specific tools** (read files, search code, etc.)
+- Can **spawn other agents** to delegate subtasks
+- Follows **custom prompts** tailored to its role
+
+Agents are defined in the `agents/` directory and follow the `AgentDefinition` interface from `agents/types/agent-definition.ts`.
+
+## Built-in Agents
+
+### Base Agent (base2)
+
+**Purpose**: The main orchestrator that coordinates all other agents to complete user requests.
+
+**Location**: `agents/base2/base2.ts`
+
+**Model**: `claude-opus-4.6` (or `minimax-m2.5` in free mode)
+
+**Key capabilities**:
+- Plans and breaks down user requests
+- Spawns specialized agents in parallel
+- Manages context and coordinates workflow
+- Validates and reviews changes
+- Runs tests and verification commands
+
+**Spawnable agents**:
+```typescript
+spawnableAgents: [
+  'file-picker',
+  'code-searcher',
+  'directory-lister',
+  'glob-matcher',
+  'researcher-web',
+  'researcher-docs',
+  'commander',
+  'thinker',
+  'editor',
+  'code-reviewer',
+  'context-pruner',
+]
+```
+
+**Tools available**:
+- `spawn_agents` - Delegate to specialized agents
+- `read_files` - Read file contents
+- `read_subtree` - Read entire directory trees
+- `write_todos` - Track task progress
+- `str_replace` - Make precise code edits
+- `write_file` - Create or overwrite files
+- `propose_str_replace` / `propose_write_file` - Propose changes
+- `ask_user` - Request clarification from user
+- `skill` - Load specialized workflows
+- `set_output` - Return structured output
+
+**System prompt principles** (from `base2.ts`):
+```typescript
+// Core Mandates:
+// - Understand first, act second: Always gather context BEFORE editing
+// - Quality over speed: Fewer, well-informed agents are better
+// - Validate assumptions: Use researchers to verify libraries/APIs
+// - Spawn multiple agents in parallel for speed
+```
+
+<Info>
+  The base agent has different modes: DEFAULT, MAX, FAST, and FREE - each optimized for different use cases.
+</Info>
+
+### File Picker (file-picker)
+
+**Purpose**: Find relevant files in the codebase related to a user's request.
+
+**Location**: `agents/file-explorer/file-picker.ts`
+
+**Display Name**: "Fletcher the File Fetcher"
+
+**Model**: `google/gemini-2.5-flash-lite` (fast and cost-effective)
+
+**How it works**:
+1. Spawns a `file-lister` agent with the user's prompt
+2. File-lister returns paths to potentially relevant files
+3. Automatically reads the discovered files
+4. Returns a concise analysis with file paths and summaries
+
+**Output**: Up to 12 file paths (20 in max mode) with short summaries
+
+**When to use**:
+- Finding files related to a feature or bug
+- Discovering architecture patterns
+- Locating dependencies or imports
+
+**Example spawn**:
+```typescript
+{
+  agent_type: 'file-picker',
+  prompt: 'Find authentication-related files and middleware'
+}
+```
+
+<Tip>
+  File-picker does a fuzzy search, not string matching. Be broad in your description: "Find x and related files" works better than "Find x file".
+</Tip>
+
+### Code Searcher (code-searcher)
+
+**Purpose**: Search for specific code patterns, function names, or text across the codebase.
+
+**Location**: `agents/file-explorer/code-searcher.ts`
+
+**Model**: `google/gemini-3.1-flash-lite-preview`
+
+**Tool used**: `code_search` (uses ripgrep under the hood)
+
+**What it searches**:
+- All project files (respects .gitignore)
+- Hidden directories: `.agents`, `.claude`, `.github`, `.gitlab`, `.circleci`, `.husky`
+
+**Output**: Up to 15 results per file, 250 results globally (configurable)
+
+**When to use**:
+- Finding where a function is used
+- Searching for TODO comments
+- Finding error messages
+- Locating specific patterns or imports
+
+**Example spawn**:
+```typescript
+{
+  agent_type: 'code-searcher',
+  prompt: 'Find all usages of the authenticate function',
+  params: {
+    flags: '-i'  // case-insensitive
+  }
+}
+```
+
+### Directory Lister (directory-lister)
+
+**Purpose**: List files in specific directories to understand structure.
+
+**Location**: `agents/file-explorer/directory-lister.ts`
+
+**Model**: `google/gemini-3.1-flash-lite-preview`
+
+**Tool used**: `list_directory`
+
+**When to use**:
+- Exploring project structure
+- Understanding directory organization
+- Finding what files exist in a specific location
+
+### Commander (commander)
+
+**Purpose**: Execute terminal commands and analyze their output.
+
+**Location**: `agents/commander.ts`
+
+**Model**: `google/gemini-3.1-flash-lite-preview`
+
+**Tool used**: `run_terminal_command`
+
+**Key features**:
+- Runs single terminal command
+- Analyzes output based on what's requested
+- Can return raw output or LLM summary
+- Configurable timeout (default 30s, set to -1 for infinite)
+
+**Input schema**:
+```typescript
+inputSchema: {
+  prompt: {
+    type: 'string',
+    description: 'What information from the command output is desired'
+  },
+  params: {
+    command: string,        // Required: command to run
+    timeout_seconds: number, // Default 30, -1 for no timeout
+    rawOutput: boolean      // true = return raw, false = LLM summary
+  }
+}
+```
+
+**When to use**:
+- Running tests (`npm test`, `pytest`)
+- Type checking (`tsc --noEmit`)
+- Linting (`eslint .`)
+- Git operations (`git status`, `git diff`)
+- Build commands (`npm run build`)
+
+**Example spawn**:
+```typescript
+{
+  agent_type: 'commander',
+  prompt: 'Check if there are any type errors',
+  params: {
+    command: 'npx tsc --noEmit',
+    timeout_seconds: 60
+  }
+}
+```
+
+### Editor (editor)
+
+**Purpose**: Implement code changes based on context and requirements.
+
+**Location**: `agents/editor/editor.ts`
+
+**Display Name**: "Code Editor"
+
+**Model**: `claude-opus-4.6` (or `gpt-5.1` variant)
+
+**Tools**: `write_file`, `str_replace`, `set_output`
+
+**Output mode**: `structured_output` (returns all messages)
+
+**Inherits parent context**: `includeMessageHistory: true`
+
+**How it works**:
+1. Receives full conversation context
+2. Uses `<think>` tags to plan implementation
+3. Makes file changes using tool calls
+4. Returns all changes as structured output
+
+**Important constraints** (from `editor.ts`):
+```typescript
+instructionsPrompt: `
+You are an expert code editor. Write out ALL the code changes 
+needed in a single comprehensive response.
+
+Important: You can not make any other tool calls besides editing files. 
+You cannot read more files, write todos, spawn agents, or set output.
+`
+```
+
+**When to use**:
+- Implementing features after context is gathered
+- Making precise code changes
+- Refactoring code
+- Fixing bugs
+
+<Warning>
+  Always gather context (using file-picker, code-searcher) BEFORE spawning the editor. The editor cannot read files itself.
+</Warning>
+
+### Code Reviewer (code-reviewer)
+
+**Purpose**: Review and validate code changes for correctness and quality.
+
+**Location**: `agents/reviewer/code-reviewer.ts`
+
+**Model**: Varies by mode (Opus 4.6 for default)
+
+**When to use**:
+- After implementing changes
+- To catch potential bugs
+- To ensure code quality
+- To validate against requirements
+
+**Workflow**:
+1. Reviews all file changes made
+2. Checks for logic errors, edge cases
+3. Validates against coding standards
+4. Suggests improvements
+
+### Context Pruner (context-pruner)
+
+**Purpose**: Automatically manage conversation context to stay within token limits.
+
+**Location**: `agents/context-pruner.ts`
+
+**Model**: `gpt-5-mini` (efficient for summarization)
+
+**Display Name**: "Context Pruner"
+
+**How it works**:
+1. Runs automatically between steps (never manually spawned)
+2. Checks if context exceeds `maxContextLength` (default 200k tokens)
+3. Summarizes conversation if needed:
+   - Preserves user messages
+   - Summarizes tool calls and results
+   - Keeps error messages and important info
+   - Removes `<think>` tags to save tokens
+4. Compresses to ~10% of max context
+
+**Key features** (from `context-pruner.ts`):
+```typescript
+// Triggers on:
+// - Context exceeds max limit
+// - Prompt cache will miss (>5 min gap)
+
+// Preserves:
+// - User messages (truncated to 15k chars)
+// - File changes (diffs)
+// - Error messages
+// - Ask_user answers
+// - Agent spawn results (excluding blacklist)
+
+// Removes:
+// - <think> blocks
+// - Verbose tool results
+// - Old summaries
+```
+
+**Blacklisted agents** (output excluded from summaries):
+- file-picker
+- code-searcher
+- directory-lister
+- glob-matcher
+- researcher-web
+- researcher-docs
+- commander
+- code-reviewer
+
+<Info>
+  You never need to spawn context-pruner yourself - it runs automatically when needed.
+</Info>
+
+### Thinker (thinker)
+
+**Purpose**: Handle complex reasoning and problem-solving.
+
+**Location**: `agents/thinker/`
+
+**When to use**:
+- Complex architectural decisions
+- Algorithm design
+- Debugging tricky issues
+- Planning multi-step refactors
+
+### Researcher Agents
+
+**researcher-web**: Search the web for documentation and solutions
+
+**researcher-docs**: Search specific documentation sites
+
+**When to use**:
+- Learning about unfamiliar libraries
+- Finding API documentation
+- Checking best practices
+- Looking up error messages
+
+### Glob Matcher (glob-matcher)
+
+**Purpose**: Find files matching glob patterns.
+
+**Tool used**: `glob` (uses micromatch)
+
+**When to use**:
+- Finding all files of a certain type (`**/*.test.ts`)
+- Matching specific patterns
+- Bulk file operations
+
+## Agent Lifecycle
+
+Every agent follows this lifecycle:
+
+1. **Spawn**: Parent agent spawns with prompt and params
+2. **Initialize**: Agent receives context (messages, system prompt, tools)
+3. **Execute**: `handleSteps` generator runs
+4. **Tool Calls**: Agent uses tools to accomplish tasks
+5. **LLM Steps**: Agent sends messages to LLM for reasoning
+6. **Complete**: Agent returns output to parent
+
+## Agent Modes
+
+The base agent has different operational modes:
+
+### DEFAULT Mode
+- Balanced quality and speed
+- Spawns editor, code-reviewer, thinker
+- Uses Claude Opus 4.6
+- Includes todos and followup suggestions
+
+### MAX Mode
+- Maximum quality and thoroughness
+- Spawns editor-multi-prompt (multiple implementation proposals)
+- Spawns code-reviewer-multi-prompt
+- Reads more files for context (12-20 files)
+- Uses Claude Opus 4.6
+- Higher credit usage
+
+### FAST Mode
+- Speed prioritized
+- Base agent does edits directly (no editor agent)
+- Minimal validation
+- Extremely concise responses
+- Lower credit usage
+
+### FREE Mode
+- Uses free/cheaper models
+- Minimax M2.5 for base agent
+- Commander-lite, editor-lite, code-reviewer-lite
+- Good for simple tasks
+
+## Best Practices
+
+### Let Agents Delegate
+
+Don't try to do everything in one agent. Let the base agent spawn specialists:
+
+```typescript
+// Good: Let base agent coordinate
+"Add authentication to the API"
+// Base agent will spawn:
+// - file-picker (find auth files)
+// - code-searcher (find existing patterns)
+// - editor (implement changes)
+// - commander (run tests)
+// - code-reviewer (validate)
+```
+
+### Spawn in Parallel
+
+When tasks are independent, spawn agents in parallel:
+
+```typescript
+// From base2.ts:
+// Spawn multiple file-pickers in parallel to explore 
+// different parts of codebase simultaneously
+```
+
+### Gather Context First
+
+Always gather context before making changes:
+
+```typescript
+// From base2.ts system prompt:
+// "Understand first, act second: Always gather context 
+// and read relevant files BEFORE editing files."
+```
+
+### Use the Right Model
+
+Fast agents for routine tasks, powerful models for complex reasoning:
+- File discovery: Gemini Flash
+- Commands: Gemini Flash Lite  
+- Editing: Claude Opus or GPT-5
+- Reasoning: Claude Opus or GPT-5
+
+## Creating Custom Agents
+
+See [Creating Agents](/agents/creating-agents) for a full guide.
+
+Basic structure:
+```typescript
+export default {
+  id: 'my-agent',
+  displayName: 'My Agent',
+  model: 'openai/gpt-5.1',
+  
+  spawnerPrompt: 'When and why to spawn this agent',
+  
+  toolNames: ['read_files', 'write_file'],
+  
+  instructionsPrompt: `
+    Your detailed instructions here.
+    What should the agent do?
+  `,
+  
+  handleSteps: function* ({ agentState, prompt, params, logger }) {
+    // Control agent behavior programmatically
+    yield { toolName: 'read_files', input: { paths: ['file.ts'] } }
+    yield 'STEP' // Let LLM think
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Multi-Agent Orchestration" icon="diagram-project" href="/concepts/multi-agent-orchestration">
+    Learn how agents coordinate
+  </Card>
+  <Card title="Tools" icon="wrench" href="/concepts/tools">
+    Explore agent tools
+  </Card>
+  <Card title="Creating Agents" icon="code" href="/agents/creating-agents">
+    Build your own agents
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/concepts/architecture">
+    Understand the system design
+  </Card>
+</CardGroup>

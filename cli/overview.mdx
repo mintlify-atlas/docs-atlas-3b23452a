@@ -1,0 +1,267 @@
+---
+title: CLI Overview
+description: Learn about the Codebuff CLI, an interactive terminal interface for AI-powered code generation
+---
+
+The Codebuff CLI is an interactive terminal user interface (TUI) that brings AI-powered coding directly to your command line. Built with OpenTUI and React, it provides a conversational interface for code generation, refactoring, debugging, and more.
+
+## What is the Codebuff CLI?
+
+The Codebuff CLI is a standalone binary that runs in your terminal and provides:
+
+- **Interactive chat interface** - Conversational AI agent that understands your codebase
+- **Real-time streaming** - See agent responses and tool executions as they happen
+- **Multi-agent orchestration** - Automatic spawning of specialized agents for different tasks
+- **Direct file manipulation** - Agents can read, write, and edit files in your project
+- **Git integration** - Automatic detection of repository context
+- **Custom agent support** - Load your own agents from `.agents/` directories
+
+## CLI vs SDK
+
+Codebuff offers two ways to interact with AI agents:
+
+<CardGroup cols={2}>
+  <Card title="CLI" icon="terminal">
+    Best for interactive development sessions, rapid prototyping, and learning how agents work.
+    
+    **Use when you want to:**
+    - Work interactively with AI agents
+    - See real-time agent reasoning
+    - Quickly test and iterate on code
+    - Create custom agents with `/init`
+  </Card>
+  
+  <Card title="SDK" icon="code">
+    Best for integrating AI into applications, automating workflows, and building custom tools.
+    
+    **Use when you want to:**
+    - Embed AI in your application
+    - Build automated workflows
+    - Create custom integrations
+    - Control agents programmatically
+  </Card>
+</CardGroup>
+
+## Basic Usage Patterns
+
+### Starting the CLI
+
+Simply run `codebuff` in your project directory:
+
+```bash
+codebuff
+```
+
+The CLI will:
+1. Detect your current directory as the project root
+2. Load custom agents from `.agents/` directories (if present)
+3. Start an interactive chat session
+
+### Sending Prompts
+
+Type your coding request and press Enter:
+
+```
+Add error handling to the user registration function
+```
+
+The agent will analyze your codebase, find relevant files, and make the necessary changes.
+
+### Using Commands
+
+Commands start with `/` and provide special functionality:
+
+```bash
+/help          # Show available commands and keyboard shortcuts
+/init          # Create knowledge.md and .agents/ directory
+/new           # Start a new conversation
+/usage         # Check your credit usage
+```
+
+### Quick Bash Execution
+
+Prefix commands with `!` to run them directly:
+
+```bash
+!npm test
+!git status
+```
+
+## Interactive Mode Features
+
+### Agent Modes
+
+Codebuff offers different agent modes optimized for different use cases:
+
+<AccordionGroup>
+  <Accordion title="DEFAULT - Balanced performance" icon="balance-scale">
+    The standard mode with a good balance of speed, cost, and capability. Suitable for most coding tasks.
+    
+    ```bash
+    /mode:default
+    ```
+  </Accordion>
+  
+  <Accordion title="FREE - Fast and economical" icon="rabbit-running">
+    Uses lightweight models for quick responses. Great for simple tasks and rapid iteration.
+    
+    ```bash
+    /mode:free
+    codebuff --free  # Start in FREE mode
+    ```
+  </Accordion>
+  
+  <Accordion title="MAX - Maximum capability" icon="sparkles">
+    Uses the most powerful models available. Best for complex refactoring and architectural changes.
+    
+    ```bash
+    /mode:max
+    codebuff --max  # Start in MAX mode
+    ```
+  </Accordion>
+  
+  <Accordion title="PLAN - Planning and strategy" icon="map">
+    Focused on planning and strategic thinking before implementation.
+    
+    ```bash
+    /mode:plan
+    codebuff --plan  # Start in PLAN mode
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Input Modes
+
+The CLI has special input modes for different tasks:
+
+- **Default** - Normal chat with the agent
+- **Bash mode** (`!` or `/bash`) - Execute shell commands
+- **Image mode** (`/image`) - Attach images to your prompts
+- **Referral mode** (`/refer-friends`) - Enter referral codes
+- **Help mode** (`/help`) - View keyboard shortcuts
+
+Press `Escape` or `Backspace` (when input is empty) to exit most special modes.
+
+### Keyboard Shortcuts
+
+<ResponseField name="Ctrl+C" type="shortcut">
+  Stop the current agent execution
+</ResponseField>
+
+<ResponseField name="Ctrl+D" type="shortcut">
+  Exit the CLI
+</ResponseField>
+
+<ResponseField name="Ctrl+R" type="shortcut">
+  Search command history
+</ResponseField>
+
+<ResponseField name="Escape" type="shortcut">
+  Exit special input modes
+</ResponseField>
+
+<ResponseField name="Tab" type="shortcut">
+  Autocomplete commands and paths
+</ResponseField>
+
+<ResponseField name="Up/Down" type="shortcut">
+  Navigate command history
+</ResponseField>
+
+### Real-time Streaming
+
+As agents work, you'll see:
+
+- **Agent reasoning** - The agent's thought process in `<think>` blocks
+- **Tool executions** - Real-time output from file operations, searches, and bash commands
+- **Spawned agents** - Sub-agents automatically created for specialized tasks
+- **Progress indicators** - Visual feedback for long-running operations
+
+### Conversation History
+
+View and continue previous conversations:
+
+```bash
+/history                    # Browse past conversations
+codebuff --continue         # Continue last conversation
+codebuff --continue abc123  # Continue specific conversation
+```
+
+## Project Context
+
+### Knowledge Files
+
+Create a `knowledge.md` file in your project root to give agents context:
+
+```bash
+/init
+```
+
+This creates:
+- `knowledge.md` - Project-specific context and conventions
+- `.agents/` - Directory for custom agent definitions
+- `.agents/types/` - TypeScript type definitions for agent development
+
+### Git Integration
+
+Codebuff automatically detects Git repositories and provides:
+- Context about uncommitted changes
+- Awareness of .gitignore rules
+- Branch information
+
+### Custom Agents
+
+Load custom agents from:
+- `{project}/.agents/` - Project-specific agents
+- `{project}/../.agents/` - Monorepo shared agents
+- `~/.agents/` - Global user agents
+
+Project agents override global agents with the same ID.
+
+## CLI Options
+
+Configure the CLI with command-line flags:
+
+```bash
+codebuff [options] [prompt]
+```
+
+**Options:**
+
+- `--agent <agent-id>` - Run a specific agent (skips local overrides)
+- `--clear-logs` - Remove existing log files before starting
+- `--continue [id]` - Continue a previous conversation
+- `--cwd <directory>` - Set working directory
+- `--free` - Start in FREE mode
+- `--max` - Start in MAX mode
+- `--plan` - Start in PLAN mode
+- `-v, --version` - Print CLI version
+- `-h, --help` - Show help message
+
+**Prompt argument:**
+
+Provide an initial prompt directly:
+
+```bash
+codebuff "add unit tests for the auth module"
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Commands" icon="terminal" href="/cli/commands">
+    Learn all available CLI commands
+  </Card>
+  
+  <Card title="Configuration" icon="gear" href="/cli/configuration">
+    Configure API keys and settings
+  </Card>
+  
+  <Card title="Workflows" icon="diagram-project" href="/cli/workflows">
+    Common CLI workflow patterns
+  </Card>
+  
+  <Card title="Custom Agents" icon="wand-magic-sparkles" href="/agents/creating-agents">
+    Create your own custom agents
+  </Card>
+</CardGroup>

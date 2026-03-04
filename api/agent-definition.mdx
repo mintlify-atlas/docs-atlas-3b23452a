@@ -1,0 +1,556 @@
+---
+title: AgentDefinition
+description: Complete type reference for defining custom Codebuff agents
+---
+
+## Overview
+
+`AgentDefinition` is the core type for creating custom Codebuff agents. It defines the agent's behavior, available tools, model configuration, prompts, and execution logic.
+
+## Type Definition
+
+```typescript
+interface AgentDefinition {
+  // Identity
+  id: string
+  version?: string
+  publisher?: string
+  displayName: string
+  
+  // Model Configuration
+  model: ModelName
+  reasoningOptions?: ReasoningOptions
+  providerOptions?: ProviderOptions
+  
+  // Tools and Subagents
+  mcpServers?: Record<string, MCPConfig>
+  toolNames?: (ToolName | string)[]
+  spawnableAgents?: string[]
+  
+  // Input and Output
+  inputSchema?: InputSchema
+  outputMode?: 'last_message' | 'all_messages' | 'structured_output'
+  outputSchema?: JsonObjectSchema
+  
+  // Prompts
+  spawnerPrompt?: string
+  includeMessageHistory?: boolean
+  inheritParentSystemPrompt?: boolean
+  systemPrompt?: string
+  instructionsPrompt?: string
+  stepPrompt?: string
+  
+  // Handle Steps
+  handleSteps?: (context: AgentStepContext) => Generator<...>
+}
+```
+
+## Identity Properties
+
+<ParamField path="id" type="string" required>
+  Unique identifier for this agent. Must contain only lowercase letters, numbers, and hyphens.
+  
+  Examples: `'code-reviewer'`, `'test-generator'`, `'doc-writer'`
+</ParamField>
+
+<ParamField path="version" type="string">
+  Version string. If not provided, defaults to '0.0.1' and is auto-bumped on each publish.
+  
+  Example: `'1.2.3'`
+</ParamField>
+
+<ParamField path="publisher" type="string">
+  Publisher ID for the agent. Required if you want to publish the agent to the agent store.
+  
+  Example: `'my-company'`
+</ParamField>
+
+<ParamField path="displayName" type="string" required>
+  Human-readable name for the agent shown in UI.
+  
+  Example: `'Code Review Assistant'`
+</ParamField>
+
+## Model Configuration
+
+<ParamField path="model" type="ModelName" required>
+  AI model to use for this agent. Can be any model from [OpenRouter](https://openrouter.ai/models).
+  
+  Recommended models:
+  - `'anthropic/claude-sonnet-4.6'` - Best for complex tasks
+  - `'anthropic/claude-sonnet-4.5'` - Balanced performance/cost
+  - `'anthropic/claude-haiku-4.5'` - Fast, cost-effective
+  - `'openai/gpt-5.3'` - OpenAI's latest
+  - `'google/gemini-2.5-pro'` - Google's flagship
+  - `'deepseek/deepseek-chat-v3-0324'` - Open source alternative
+  
+  Or use any model string from OpenRouter (e.g., `'meta-llama/llama-4-scout'`)
+</ParamField>
+
+<ParamField path="reasoningOptions" type="ReasoningOptions">
+  Configuration for extended thinking/reasoning capabilities.
+  
+  [OpenRouter reasoning tokens documentation](https://openrouter.ai/docs/use-cases/reasoning-tokens)
+  
+  ```typescript
+  type ReasoningOptions = {
+    enabled?: boolean
+    exclude?: boolean  // Remove reasoning from response
+  } & (
+    | { max_tokens: number }
+    | { effort: 'high' | 'medium' | 'low' | 'minimal' | 'none' }
+  )
+  ```
+  
+  Example:
+  ```typescript
+  reasoningOptions: {
+    enabled: true,
+    effort: 'high',
+    exclude: false  // Include reasoning in output
+  }
+  ```
+</ParamField>
+
+<ParamField path="providerOptions" type="ProviderOptions">
+  Provider routing options for OpenRouter. Control which providers to use and fallback behavior.
+  
+  [OpenRouter provider routing docs](https://openrouter.ai/docs/features/provider-routing)
+  
+  <Expandable title="ProviderOptions properties">
+    <ParamField path="order" type="string[]">
+      List of provider slugs to try in order (e.g., `["anthropic", "openai"]`)
+    </ParamField>
+    
+    <ParamField path="allow_fallbacks" type="boolean">
+      Allow backup providers when primary is unavailable (default: true)
+    </ParamField>
+    
+    <ParamField path="require_parameters" type="boolean">
+      Only use providers supporting all parameters in your request (default: false)
+    </ParamField>
+    
+    <ParamField path="data_collection" type="'allow' | 'deny'">
+      Control whether to use providers that may store data
+    </ParamField>
+    
+    <ParamField path="only" type="string[]">
+      Whitelist of provider slugs to allow
+    </ParamField>
+    
+    <ParamField path="ignore" type="string[]">
+      Blacklist of provider slugs to skip
+    </ParamField>
+    
+    <ParamField path="sort" type="'price' | 'throughput' | 'latency'">
+      Sort providers by optimization criteria
+    </ParamField>
+    
+    <ParamField path="max_price" type="object">
+      Maximum pricing constraints:
+      ```typescript
+      {
+        prompt?: number | string
+        completion?: number | string
+        image?: number | string
+        audio?: number | string
+        request?: number | string
+      }
+      ```
+    </ParamField>
+  </Expandable>
+  
+  Example:
+  ```typescript
+  providerOptions: {
+    order: ['anthropic', 'openai'],
+    allow_fallbacks: true,
+    max_price: {
+      completion: 0.01  // $0.01 per token max
+    }
+  }
+  ```
+</ParamField>
+
+## Tools and Subagents
+
+<ParamField path="mcpServers" type="Record<string, MCPConfig>">
+  MCP servers by name. Names cannot contain `/`.
+  
+  [Model Context Protocol](https://modelcontextprotocol.io/) enables agents to connect to external tools and data sources.
+  
+  ```typescript
+  type MCPConfig = {
+    command: string
+    args?: string[]
+    env?: Record<string, string>
+  }
+  ```
+  
+  Example:
+  ```typescript
+  mcpServers: {
+    'github': {
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-github'],
+      env: { GITHUB_TOKEN: process.env.GITHUB_TOKEN }
+    }
+  }
+  ```
+</ParamField>
+
+<ParamField path="toolNames" type="(ToolName | string)[]">
+  Tools this agent can use.
+  
+  **Built-in tools:**
+  - `'read_files'` - Read file contents
+  - `'write_file'` - Create/overwrite files
+  - `'str_replace'` - Find and replace in files
+  - `'apply_patch'` - Apply unified diff patches
+  - `'code_search'` - Search code using regex
+  - `'glob'` - Find files by pattern
+  - `'list_directory'` - List directory contents
+  - `'run_terminal_command'` - Execute shell commands
+  - `'spawn_agents'` - Spawn subagents
+  - `'set_output'` - Set structured output
+  - `'end_turn'` - End agent turn
+  - `'skill'` - Load skills
+  - `'web_search'` - Search the web
+  - `'read_docs'` - Read documentation
+  
+  **MCP tools:**
+  By default, all tools from specified MCP servers are available. To limit tools from a specific server:
+  
+  ```typescript
+  toolNames: ['read_files', 'github/get-issue', 'github/create-pr']
+  ```
+  
+  Example:
+  ```typescript
+  toolNames: [
+    'read_files',
+    'write_file', 
+    'code_search',
+    'run_terminal_command'
+  ]
+  ```
+</ParamField>
+
+<ParamField path="spawnableAgents" type="string[]">
+  Other agents this agent can spawn as subagents.
+  
+  **Published agents** (use fully qualified ID with publisher and version):
+  ```typescript
+  spawnableAgents: ['codebuff/file-picker@0.0.1']
+  ```
+  
+  **Local agents** (use agent ID from your `.agents` directory):
+  ```typescript
+  spawnableAgents: ['my-local-agent']
+  ```
+</ParamField>
+
+## Input and Output
+
+<ParamField path="inputSchema" type="InputSchema">
+  The input schema required to spawn the agent.
+  
+  ```typescript
+  type InputSchema = {
+    prompt?: { type: 'string'; description?: string }
+    params?: JsonObjectSchema
+  }
+  ```
+  
+  80% of agents only need a prompt:
+  ```typescript
+  inputSchema: {
+    prompt: { 
+      type: 'string', 
+      description: 'Description of what the agent needs' 
+    }
+  }
+  ```
+  
+  For structured inputs:
+  ```typescript
+  inputSchema: {
+    prompt: { type: 'string' },
+    params: {
+      type: 'object',
+      properties: {
+        maxFiles: { type: 'number' },
+        pattern: { type: 'string' }
+      },
+      required: ['pattern']
+    }
+  }
+  ```
+</ParamField>
+
+<ParamField path="outputMode" type="'last_message' | 'all_messages' | 'structured_output'">
+  How the agent outputs a response to its parent. Defaults to `'last_message'`.
+  
+  - `'last_message'`: Return only the final assistant message
+  - `'all_messages'`: Return all messages including tool calls and results
+  - `'structured_output'`: Return a JSON object (use with `outputSchema`)
+  
+  Example:
+  ```typescript
+  outputMode: 'structured_output'
+  ```
+</ParamField>
+
+<ParamField path="outputSchema" type="JsonObjectSchema">
+  JSON schema for structured output (when `outputMode` is `'structured_output'`).
+  
+  Example:
+  ```typescript
+  outputSchema: {
+    type: 'object',
+    properties: {
+      summary: { type: 'string' },
+      issues: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            severity: { type: 'string' },
+            description: { type: 'string' }
+          }
+        }
+      }
+    },
+    required: ['summary']
+  }
+  ```
+</ParamField>
+
+## Prompts
+
+<ParamField path="spawnerPrompt" type="string">
+  Prompt describing when and why to spawn this agent. Include the main purpose and use cases.
+  
+  This field is crucial if the agent is intended to be spawned by other agents.
+  
+  Example:
+  ```typescript
+  spawnerPrompt: `Use this agent to analyze code quality and suggest improvements.
+  
+  Best for:
+  - Code review feedback
+  - Identifying anti-patterns
+  - Suggesting refactoring opportunities
+  
+  The agent will read the specified files and provide detailed analysis.`
+  ```
+</ParamField>
+
+<ParamField path="includeMessageHistory" type="boolean">
+  Whether to include conversation history from the parent agent. Defaults to `false`.
+  
+  Set to `true` when the subagent needs context from previous messages.
+</ParamField>
+
+<ParamField path="inheritParentSystemPrompt" type="boolean">
+  Whether to inherit the parent's system prompt instead of using this agent's own. Defaults to `false`.
+  
+  Useful for enabling prompt caching by preserving the same system prompt prefix. Cannot be used together with `systemPrompt`.
+</ParamField>
+
+<ParamField path="systemPrompt" type="string">
+  Background information for the agent. Fairly optional - prefer using `instructionsPrompt` for behavior shaping.
+  
+  Example:
+  ```typescript
+  systemPrompt: 'You are an expert TypeScript developer with 10 years of experience.'
+  ```
+</ParamField>
+
+<ParamField path="instructionsPrompt" type="string">
+  Instructions for the agent. **This is the most important prompt for shaping agent behavior.**
+  
+  Inserted after each user input. Use this to define the agent's task, constraints, and output format.
+  
+  Example:
+  ```typescript
+  instructionsPrompt: `Analyze the code for the following issues:
+  1. Security vulnerabilities
+  2. Performance bottlenecks
+  3. Code style violations
+  
+  Provide specific line numbers and suggestions for each issue found.`
+  ```
+</ParamField>
+
+<ParamField path="stepPrompt" type="string">
+  Prompt inserted at each agent step.
+  
+  Powerful for changing behavior, but usually not necessary for smart models. Prefer `instructionsPrompt` for most cases.
+</ParamField>
+
+## Handle Steps
+
+<ParamField path="handleSteps" type="Generator Function">
+  Programmatically control agent execution by yielding tool calls or step commands.
+  
+  ```typescript
+  handleSteps?: (context: AgentStepContext) => Generator<
+    ToolCall | 'STEP' | 'STEP_ALL' | StepText | GenerateN,
+    void,
+    YieldResult
+  >
+  ```
+  
+  **Context:**
+  ```typescript
+  type AgentStepContext = {
+    agentState: AgentState
+    prompt?: string
+    params?: Record<string, any>
+    logger: Logger
+  }
+  ```
+  
+  **Yield types:**
+  - `{ toolName: string, input: any }` - Execute a tool
+  - `'STEP'` - Run one model step
+  - `'STEP_ALL'` - Run until agent stops
+  - `{ type: 'STEP_TEXT', text: string }` - Add text to context
+  - `{ type: 'GENERATE_N', n: number }` - Generate N responses
+  
+  **Yield result:**
+  ```typescript
+  {
+    agentState: AgentState
+    toolResult: ToolResultOutput[] | undefined
+    stepsComplete: boolean
+    nResponses?: string[]
+  }
+  ```
+  
+  **Example 1: Orchestration**
+  ```typescript
+  function* handleSteps({ agentState, prompt, logger }) {
+    logger.info('Starting file read process')
+    
+    // Execute tool programmatically
+    const { toolResult } = yield {
+      toolName: 'read_files',
+      input: { paths: ['file1.ts', 'file2.ts'] }
+    }
+    
+    // Let agent continue naturally
+    yield 'STEP_ALL'
+    
+    // Post-processing
+    logger.info('Setting final output')
+    yield {
+      toolName: 'set_output',
+      input: { output: 'Files processed successfully' }
+    }
+  }
+  ```
+  
+  **Example 2: Loop with subagents**
+  ```typescript
+  function* handleSteps({ agentState, logger }) {
+    while (true) {
+      logger.debug('Spawning thinker agent')
+      
+      yield {
+        toolName: 'spawn_agents',
+        input: {
+          agents: [{
+            agent_type: 'thinker',
+            prompt: 'Analyze the current situation'
+          }]
+        }
+      }
+      
+      const { stepsComplete } = yield 'STEP'
+      if (stepsComplete) break
+    }
+  }
+  ```
+</ParamField>
+
+## Complete Example
+
+```typescript
+import { AgentDefinition } from '@codebuff/sdk'
+
+const codeReviewer: AgentDefinition = {
+  // Identity
+  id: 'code-reviewer',
+  displayName: 'Code Review Assistant',
+  version: '1.0.0',
+  publisher: 'my-company',
+  
+  // Model
+  model: 'anthropic/claude-sonnet-4.5',
+  
+  // Tools
+  toolNames: [
+    'read_files',
+    'code_search',
+    'set_output'
+  ],
+  
+  // Input
+  inputSchema: {
+    prompt: {
+      type: 'string',
+      description: 'Files or directories to review'
+    },
+    params: {
+      type: 'object',
+      properties: {
+        severity: { 
+          type: 'string', 
+          enum: ['all', 'high', 'critical'] 
+        }
+      }
+    }
+  },
+  
+  // Output
+  outputMode: 'structured_output',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      summary: { type: 'string' },
+      issues: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            file: { type: 'string' },
+            line: { type: 'number' },
+            severity: { type: 'string' },
+            description: { type: 'string' }
+          }
+        }
+      }
+    }
+  },
+  
+  // Prompts
+  instructionsPrompt: `Review the code for:
+  1. Security vulnerabilities
+  2. Performance issues
+  3. Code style violations
+  
+  Provide specific feedback with file paths and line numbers.`,
+  
+  spawnerPrompt: 'Use this agent for thorough code reviews'
+}
+
+export default codeReviewer
+```
+
+## Related Types
+
+- [CodebuffClient](/api/codebuff-client) - Main SDK client
+- [RunOptions](/api/run-options) - Run configuration
+- [CustomTool](/api/custom-tool) - Custom tool definitions

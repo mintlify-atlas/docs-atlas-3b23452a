@@ -1,0 +1,386 @@
+---
+title: File System Access
+description: How Codebuff agents access and manipulate files
+---
+
+Codebuff provides a robust file system abstraction that agents use to read, write, and manipulate files safely.
+
+## FileSystem Abstraction
+
+Codebuff uses a standardized `CodebuffFileSystem` interface compatible with Node.js `fs.promises`:
+
+```typescript
+// From common/src/types/filesystem.ts:7-10
+export type CodebuffFileSystem = Pick<
+  typeof fs.promises,
+  'mkdir' | 'readdir' | 'readFile' | 'stat' | 'unlink' | 'writeFile'
+>
+```
+
+This abstraction allows:
+- **Compatibility**: Works with standard Node.js filesystem
+- **Testability**: Easy to mock for testing
+- **Security**: Controlled access patterns
+- **Portability**: Can be swapped for different backends
+
+## Working Directory
+
+All file operations are scoped to a working directory (project root):
+
+```typescript
+import { run } from '@codebuff/sdk'
+import fs from 'fs/promises'
+
+await run({
+  apiKey: process.env.CODEBUFF_API_KEY,
+  agentId: 'my-agent',
+  input: 'Fix the bug in src/app.ts',
+  cwd: process.cwd(), // Working directory
+  fs: fs, // File system implementation
+})
+```
+
+### Path Resolution
+
+All paths are resolved relative to the working directory:
+
+```typescript
+// From sdk/src/tools/list-directory.ts:14-25
+const resolvedPath = path.resolve(projectPath, directoryPath)
+
+if (!resolvedPath.startsWith(projectPath)) {
+  return [{
+    type: 'json',
+    value: {
+      errorMessage: `Invalid path: Path '${directoryPath}' is outside the project directory.`,
+    },
+  }]
+}
+```
+
+## Reading Files
+
+Agents read files using the `read` tool, which uses `getFiles` under the hood.
+
+### File Reading Implementation
+
+```typescript
+// From sdk/src/tools/read-files.ts:14-97
+export async function getFiles(params: {
+  filePaths: string[]
+  cwd: string
+  fs: CodebuffFileSystem
+  fileFilter?: FileFilter
+}) {
+  const { filePaths, cwd, fs, fileFilter } = params
+  const result: Record<string, string | null> = {}
+  const MAX_FILE_SIZE = 1024 * 1024 // 1MB in bytes
+
+  for (const filePath of filePaths) {
+    if (!filePath) {
+      continue
+    }
+
+    // Convert absolute paths within project to relative paths
+    const relativePath = filePath.startsWith(cwd)
+      ? path.relative(cwd, filePath)
+      : filePath
+    const fullPath = path.join(cwd, relativePath)
+    
+    if (isAbsolute(relativePath) || !fullPath.startsWith(cwd)) {
+      result[relativePath] = FILE_READ_STATUS.OUTSIDE_PROJECT
+      continue
+    }
+
+    try {
+      const stats = await fs.stat(fullPath)
+      if (stats.size > MAX_FILE_SIZE) {
+        result[relativePath] = FILE_READ_STATUS.TOO_LARGE + 
+          ` [${(stats.size / (1024 * 1024)).toFixed(2)}MB]`
+      } else {
+        const content = await fs.readFile(fullPath, 'utf8')
+        result[relativePath] = content
+      }
+    } catch (error) {
+      if (error?.code === 'ENOENT') {
+        result[relativePath] = FILE_READ_STATUS.DOES_NOT_EXIST
+      } else {
+        result[relativePath] = FILE_READ_STATUS.ERROR
+      }
+    }
+  }
+  
+  return result
+}
+```
+
+### File Size Limits
+
+**Maximum file size**: 1MB (1024 * 1024 bytes)
+
+Files larger than this are not read, and return a status message:
+
+```
+FILE_READ_STATUS.TOO_LARGE [2.45MB]
+```
+
+### File Filtering
+
+Codebuff automatically filters files based on gitignore rules:
+
+```typescript
+// Apply gitignore checking
+if (!hasCustomFilter && !isExampleFile) {
+  const ignored = await isFileIgnored({
+    filePath: relativePath,
+    projectRoot: cwd,
+    fs,
+  })
+  if (ignored) {
+    result[relativePath] = FILE_READ_STATUS.IGNORED
+    continue
+  }
+}
+```
+
+### Custom File Filters
+
+```typescript
+export type FileFilterResult = {
+  status: 'blocked' | 'allow-example' | 'allow'
+}
+
+export type FileFilter = (filePath: string) => FileFilterResult
+```
+
+Provide a custom filter when calling `getFiles`:
+
+```typescript
+const files = await getFiles({
+  filePaths: ['src/app.ts', '.env'],
+  cwd: '/path/to/project',
+  fs: fs,
+  fileFilter: (filePath) => {
+    if (filePath.startsWith('.env')) {
+      return { status: 'blocked' }
+    }
+    return { status: 'allow' }
+  },
+})
+```
+
+## Writing Files
+
+Agents write files using the `edit` tool (for modifications) or `str_replace` (for patches).
+
+### Change File Implementation
+
+```typescript
+// From sdk/src/tools/change-file.ts:32-97
+export async function changeFile(params: {
+  parameters: unknown
+  cwd: string
+  fs: CodebuffFileSystem
+}): Promise<CodebuffToolOutput<'str_replace'>> {
+  const { parameters, cwd, fs } = params
+
+  if (containsUpwardTraversal(cwd)) {
+    throw new Error('cwd contains invalid path traversal')
+  }
+  
+  const fileChange = FileChangeSchema.parse(parameters)
+  if (containsPathTraversal(fileChange.path)) {
+    throw new Error('file path contains invalid path traversal')
+  }
+
+  const { created, modified, invalid, patchFailed } = await applyChanges({
+    projectRoot: cwd,
+    changes: [fileChange],
+    fs,
+  })
+
+  // Return results...
+}
+```
+
+### Path Traversal Protection
+
+```typescript
+// From sdk/src/tools/change-file.ts:26-30
+function containsPathTraversal(filePath: string): boolean {
+  const normalized = path.normalize(filePath)
+  // Check for absolute paths or paths starting with .. that escape root
+  return path.isAbsolute(normalized) || normalized.startsWith('..')
+}
+```
+
+### Applying Changes
+
+```typescript
+// From sdk/src/tools/change-file.ts:99-149
+async function applyChanges(params: {
+  projectRoot: string
+  changes: {
+    type: 'patch' | 'file'
+    path: string
+    content: string
+  }[]
+  fs: CodebuffFileSystem
+}) {
+  const { projectRoot, changes, fs } = params
+
+  const created: string[] = []
+  const modified: string[] = []
+  const patchFailed: string[] = []
+  const invalid: string[] = []
+
+  for (const change of changes) {
+    const { path: filePath, content, type } = change
+    try {
+      const fullPath = path.join(projectRoot, filePath)
+      const exists = await fileExists({ filePath: fullPath, fs })
+      
+      if (!exists) {
+        const dirPath = path.dirname(fullPath)
+        await fs.mkdir(dirPath, { recursive: true })
+      }
+
+      if (type === 'file') {
+        await fs.writeFile(fullPath, content)
+      } else {
+        const oldContent = await fs.readFile(fullPath, 'utf-8')
+        const newContent = applyPatch(oldContent, content)
+        if (newContent === false) {
+          patchFailed.push(filePath)
+          continue
+        }
+        await fs.writeFile(fullPath, newContent)
+      }
+
+      if (exists) {
+        modified.push(filePath)
+      } else {
+        created.push(filePath)
+      }
+    } catch (error) {
+      console.error(`Failed to apply patch to ${filePath}:`, error)
+      invalid.push(filePath)
+    }
+  }
+
+  return { created, modified, invalid, patchFailed }
+}
+```
+
+## Listing Directories
+
+The `list_directory` tool enumerates files and directories:
+
+```typescript
+// From sdk/src/tools/list-directory.ts:6-63
+export async function listDirectory(params: {
+  directoryPath: string
+  projectPath: string
+  fs: CodebuffFileSystem
+}): Promise<CodebuffToolOutput<'list_directory'>> {
+  const { directoryPath, projectPath, fs } = params
+
+  try {
+    const resolvedPath = path.resolve(projectPath, directoryPath)
+
+    if (!resolvedPath.startsWith(projectPath)) {
+      return [{
+        type: 'json',
+        value: {
+          errorMessage: `Invalid path: Path '${directoryPath}' is outside the project directory.`,
+        },
+      }]
+    }
+
+    const entries = await fs.readdir(resolvedPath, {
+      withFileTypes: true,
+    })
+
+    const files: string[] = []
+    const directories: string[] = []
+
+    for (const entry of entries) {
+      if (entry.isDirectory()) {
+        directories.push(entry.name)
+      } else if (entry.isFile()) {
+        files.push(entry.name)
+      }
+    }
+
+    return [{
+      type: 'json',
+      value: { files, directories, path: directoryPath },
+    }]
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error)
+    return [{
+      type: 'json',
+      value: { errorMessage: `Failed to list directory: ${errorMessage}` },
+    }]
+  }
+}
+```
+
+## Security Considerations
+
+### Path Safety
+
+1. **Relative path normalization**: Converts absolute paths to relative
+2. **Boundary checking**: Ensures paths stay within project root
+3. **Traversal prevention**: Blocks `..` sequences that escape root
+
+```typescript
+// All paths must be within the project directory
+if (!resolvedPath.startsWith(projectPath)) {
+  throw new Error('Path is outside project directory')
+}
+```
+
+### File Access Controls
+
+1. **Gitignore enforcement**: Respects `.gitignore` patterns
+2. **Size limits**: Prevents reading very large files
+3. **Error handling**: Gracefully handles permission errors
+
+### Directory Creation
+
+Directories are created recursively when needed:
+
+```typescript
+if (!exists) {
+  const dirPath = path.dirname(fullPath)
+  await fs.mkdir(dirPath, { recursive: true })
+}
+```
+
+## Testing with Mock FileSystem
+
+Codebuff provides mock filesystem utilities for testing:
+
+```typescript
+import { createMockFs } from '@codebuff/common/testing/mocks/filesystem'
+
+const mockFs = createMockFs({
+  'src/app.ts': 'console.log("Hello")',
+  'package.json': '{"name": "my-app"}',
+})
+
+await run({
+  apiKey: 'test-key',
+  agentId: 'my-agent',
+  input: 'Read src/app.ts',
+  cwd: '/mock/project',
+  fs: mockFs,
+})
+```
+
+## Next Steps
+
+- Learn about [Error Handling](/advanced/error-handling)
+- Explore [Tool System](/tools/overview)
+- See [Testing Guide](/testing) for filesystem mocking

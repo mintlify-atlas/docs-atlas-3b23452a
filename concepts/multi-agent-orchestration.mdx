@@ -1,0 +1,621 @@
+---
+title: Multi-Agent Orchestration
+description: How Codebuff coordinates multiple AI agents to complete complex coding tasks
+---
+
+# Multi-Agent Orchestration
+
+Codebuff's power comes from **coordinating multiple specialized agents** to work together on complex tasks. Rather than asking a single model to do everything, tasks are broken down and distributed to agents optimized for specific jobs.
+
+## Why Multi-Agent?
+
+Single-model approaches struggle with complex coding tasks because they must:
+- Understand entire codebases in one context window
+- Handle file discovery, editing, testing, and reviewing simultaneously
+- Balance speed and quality without specialization
+
+**Multi-agent orchestration solves these problems** by:
+
+1. **Specialization** - Each agent uses the optimal model and prompts for its task
+2. **Parallelization** - Independent tasks run simultaneously for speed
+3. **Context Management** - Agents only see relevant information
+4. **Quality Control** - Dedicated agents for review and validation
+
+<Info>
+  Codebuff achieves 61% success on evals vs 53% for Claude Code using this multi-agent approach.
+</Info>
+
+## Agent Spawning
+
+### The spawn_agents Tool
+
+Agents spawn other agents using the `spawn_agents` tool:
+
+```typescript
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [
+      {
+        agent_type: 'file-picker',
+        prompt: 'Find authentication-related files',
+        params: { directories: ['src/auth'] }
+      },
+      {
+        agent_type: 'code-searcher',
+        prompt: 'Find all uses of authenticateUser function'
+      }
+    ]
+  }
+}
+```
+
+### Parallel vs Sequential Spawning
+
+From `agents/base2/base2.ts` system prompt:
+
+```typescript
+// PARALLEL spawning (no dependencies):
+// "Spawn multiple agents in parallel: This increases the speed
+// of your response AND allows you to be more comprehensive"
+
+// Example: Spawn 3 file-pickers in parallel to explore 
+// different parts of the codebase
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [
+      { agent_type: 'file-picker', prompt: 'Find API routes' },
+      { agent_type: 'file-picker', prompt: 'Find auth middleware' },
+      { agent_type: 'file-picker', prompt: 'Find database models' }
+    ]
+  }
+}
+
+// SEQUENTIAL spawning (with dependencies):
+// "Sequence agents properly: Keep in mind dependencies.
+// Don't spawn agents in parallel that depend on each other."
+
+// Example: Gather context first, THEN edit
+// Step 1: Spawn context-gathering agents
+yield { toolName: 'spawn_agents', input: { agents: [...] } }
+yield 'STEP'
+
+// Step 2: After context is gathered, spawn editor
+yield { 
+  toolName: 'spawn_agents', 
+  input: { 
+    agents: [{ agent_type: 'editor' }] 
+  } 
+}
+```
+
+### Agent Communication
+
+Agents communicate through:
+
+1. **Input**: Prompt and params passed during spawn
+2. **Output**: Returned via `outputMode` (last_message, all_messages, or structured_output)
+3. **Context Inheritance**: Some agents inherit parent conversation history
+
+From `agents/types/agent-definition.ts`:
+```typescript
+includeMessageHistory?: boolean  // Inherit parent's conversation
+inheritParentSystemPrompt?: boolean  // Use parent's system prompt
+```
+
+## Real-World Workflow Examples
+
+### Example 1: Implementing a New Feature
+
+Let's walk through how agents coordinate when implementing "Add rate limiting to API endpoints":
+
+```typescript
+// Step 1: Base agent receives user request
+// User: "Add rate limiting to all API endpoints"
+
+// Step 2: Base agent spawns context-gathering agents IN PARALLEL
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [
+      {
+        agent_type: 'file-picker',
+        prompt: 'Find API route files and middleware'
+      },
+      {
+        agent_type: 'file-picker',
+        prompt: 'Find existing middleware patterns'
+      },
+      {
+        agent_type: 'code-searcher',
+        prompt: 'Find any existing rate limiting code'
+      },
+      {
+        agent_type: 'researcher-docs',
+        prompt: 'Look up rate limiting best practices for Express.js'
+      }
+    ]
+  }
+}
+
+// File-picker spawns file-lister, which returns paths
+// File-picker automatically reads those files
+// All 4 agents complete in parallel
+
+// Step 3: Base agent reads additional files identified
+yield {
+  toolName: 'read_files',
+  input: { 
+    paths: [
+      'src/middleware/auth.ts',  // Pattern example
+      'package.json'  // Check dependencies
+    ]
+  }
+}
+
+// Step 4: Base agent asks user for clarification
+yield {
+  toolName: 'ask_user',
+  input: {
+    questions: [{
+      question: 'Should rate limiting be per-IP or per-user token?',
+      options: ['Per-IP', 'Per-user token', 'Both']
+    }]
+  }
+}
+// User responds: "Per-IP"
+
+// Step 5: Base agent writes implementation plan
+yield {
+  toolName: 'write_todos',
+  input: {
+    todos: [
+      { task: 'Install express-rate-limit package', completed: false },
+      { task: 'Create rate limit middleware', completed: false },
+      { task: 'Apply middleware to all routes', completed: false },
+      { task: 'Add tests for rate limiting', completed: false },
+      { task: 'Update documentation', completed: false }
+    ]
+  }
+}
+
+// Step 6: Base agent spawns commander to install package
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [{
+      agent_type: 'commander',
+      prompt: 'Install the package and confirm it was added',
+      params: {
+        command: 'npm install express-rate-limit',
+        timeout_seconds: 60
+      }
+    }]
+  }
+}
+
+// Step 7: Base agent spawns editor to implement changes
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [{
+      agent_type: 'editor',
+      // Editor inherits full conversation context
+      // No prompt needed - it sees everything
+    }]
+  }
+}
+
+// Editor thinks and makes changes:
+// - Creates src/middleware/rateLimit.ts
+// - Modifies src/app.ts to apply middleware
+// - Updates routes to use rate limiting
+
+// Step 8: Base agent spawns validation agents IN PARALLEL
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [
+      {
+        agent_type: 'commander',
+        prompt: 'Check for type errors',
+        params: { command: 'npx tsc --noEmit' }
+      },
+      {
+        agent_type: 'commander',
+        prompt: 'Run tests',
+        params: { command: 'npm test' }
+      },
+      {
+        agent_type: 'code-reviewer',
+        // Reviewer sees all changes and validates them
+      }
+    ]
+  }
+}
+
+// Step 9: If issues found, base agent fixes them
+// Then re-runs validation
+
+// Step 10: Base agent reports completion to user
+// "Added rate limiting middleware to all API endpoints. 
+// Configured for 100 requests per 15 minutes per IP.
+// All tests passing."
+```
+
+### Example 2: Bug Investigation
+
+How agents coordinate to investigate "Users are getting 500 errors on login":
+
+```typescript
+// Step 1: Gather information IN PARALLEL
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [
+      {
+        agent_type: 'file-picker',
+        prompt: 'Find login and authentication code'
+      },
+      {
+        agent_type: 'code-searcher',
+        prompt: 'Find error handling in login routes',
+        params: { flags: '-i 500 error' }
+      },
+      {
+        agent_type: 'commander',
+        prompt: 'Check recent error logs',
+        params: { 
+          command: 'tail -n 100 logs/error.log | grep login' 
+        }
+      }
+    ]
+  }
+}
+
+// Step 2: Base agent reads identified files
+yield { toolName: 'read_files', input: { paths: [...] } }
+
+// Step 3: Spawn thinker for analysis
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [{
+      agent_type: 'thinker',
+      prompt: `Analyze these logs and code to determine 
+               the root cause of 500 errors on login`
+    }]
+  }
+}
+
+// Step 4: Implement fix based on analysis
+// Step 5: Test the fix
+// Step 6: Report findings and resolution
+```
+
+## Workflow Patterns
+
+### Pattern 1: Context → Think → Act → Validate
+
+The most common pattern in Codebuff:
+
+```typescript
+// 1. CONTEXT: Gather information
+yield { toolName: 'spawn_agents', input: { agents: [
+  { agent_type: 'file-picker', ... },
+  { agent_type: 'code-searcher', ... }
+] } }
+
+// 2. THINK: Analyze and plan
+yield { toolName: 'write_todos', input: { todos: [...] } }
+// OR spawn thinker for complex problems
+
+// 3. ACT: Make changes
+yield { toolName: 'spawn_agents', input: { agents: [
+  { agent_type: 'editor' }
+] } }
+
+// 4. VALIDATE: Test and review
+yield { toolName: 'spawn_agents', input: { agents: [
+  { agent_type: 'commander', params: { command: 'npm test' } },
+  { agent_type: 'code-reviewer' }
+] } }
+```
+
+### Pattern 2: Iterative Refinement
+
+For complex tasks requiring multiple rounds:
+
+```typescript
+while (true) {
+  // Make changes
+  yield { toolName: 'spawn_agents', ... }
+  
+  // Validate
+  const { toolResult } = yield { 
+    toolName: 'spawn_agents',
+    input: { agents: [{ agent_type: 'commander', ... }] }
+  }
+  
+  // Check if issues remain
+  const { stepsComplete } = yield 'STEP'
+  if (stepsComplete) break
+  
+  // Fix issues and continue loop
+}
+```
+
+### Pattern 3: Fan-Out Exploration
+
+Explore multiple areas simultaneously:
+
+```typescript
+// Spawn many file-pickers to explore different parts
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [
+      { agent_type: 'file-picker', prompt: 'Frontend components' },
+      { agent_type: 'file-picker', prompt: 'API routes' },
+      { agent_type: 'file-picker', prompt: 'Database models' },
+      { agent_type: 'file-picker', prompt: 'Test files' },
+      { agent_type: 'file-picker', prompt: 'Configuration' }
+    ]
+  }
+}
+```
+
+From `base2.ts`:
+```typescript
+// "try spawning multiple [file-pickers] in parallel 
+// (say, 2-5) to explore different parts of the codebase"
+```
+
+### Pattern 4: Specialized Agent Chain
+
+Delegate to specialized agents in sequence:
+
+```typescript
+// Step 1: Find files
+const { toolResult: files } = yield {
+  toolName: 'spawn_agents',
+  input: { agents: [{ agent_type: 'file-picker', ... }] }
+}
+
+// Step 2: Search within those files
+const { toolResult: matches } = yield {
+  toolName: 'spawn_agents',
+  input: { agents: [{ agent_type: 'code-searcher', ... }] }
+}
+
+// Step 3: Read and understand
+yield { toolName: 'read_files', input: { paths: [...] } }
+
+// Step 4: Plan changes
+const { toolResult: plan } = yield {
+  toolName: 'spawn_agents',
+  input: { agents: [{ agent_type: 'thinker', ... }] }
+}
+
+// Step 5: Implement
+yield { toolName: 'spawn_agents', 
+  input: { agents: [{ agent_type: 'editor' }] }
+}
+```
+
+## Agent Coordination Mechanisms
+
+### 1. Context Inheritance
+
+Some agents inherit the full conversation history:
+
+```typescript
+// From agents/editor/editor.ts:
+{
+  includeMessageHistory: true,
+  inheritParentSystemPrompt: true,
+  // Editor sees EVERYTHING the base agent has done
+}
+```
+
+This allows the editor to understand the full context without re-explaining.
+
+### 2. Output Modes
+
+Agents return results in different formats:
+
+```typescript
+// last_message: Just the agent's final response
+// (file-picker, code-searcher, commander)
+outputMode: 'last_message'
+
+// all_messages: Complete message history
+// (for full context)
+outputMode: 'all_messages'
+
+// structured_output: JSON object
+// (editor returns all changes as structured data)
+outputMode: 'structured_output'
+```
+
+### 3. Tool Results
+
+Accessing results from spawned agents:
+
+```typescript
+const { toolResult } = yield {
+  toolName: 'spawn_agents',
+  input: { agents: [...] }
+}
+
+// toolResult is an array of results
+// Each result has: { type: 'json', value: {...} }
+```
+
+From `agents/file-explorer/file-picker.ts`:
+```typescript
+function extractSpawnResults(results: any[]) {
+  const jsonResult = results.find(r => r.type === 'json')
+  const spawnedResults = Array.isArray(jsonResult.value) 
+    ? jsonResult.value 
+    : [jsonResult.value]
+  return spawnedResults.map(result => result?.value)
+}
+```
+
+### 4. Automatic Context Pruning
+
+The context-pruner agent runs automatically:
+
+```typescript
+// From base2.ts handleSteps:
+while (true) {
+  // Run context-pruner BEFORE each step
+  yield {
+    toolName: 'spawn_agent_inline',
+    input: {
+      agent_type: 'context-pruner',
+      params: params ?? {},
+    },
+    includeToolCall: false,
+  }
+  
+  const { stepsComplete } = yield 'STEP'
+  if (stepsComplete) break
+}
+```
+
+This ensures agents never run out of context space.
+
+## Best Practices
+
+### 1. Spawn Agents in Parallel
+
+Whenever agents don't depend on each other, spawn them together:
+
+```typescript
+// GOOD: All spawn together
+yield {
+  toolName: 'spawn_agents',
+  input: { agents: [agent1, agent2, agent3] }
+}
+
+// BAD: Sequential when parallel is possible
+yield { toolName: 'spawn_agents', input: { agents: [agent1] } }
+yield { toolName: 'spawn_agents', input: { agents: [agent2] } }
+yield { toolName: 'spawn_agents', input: { agents: [agent3] } }
+```
+
+### 2. Respect Agent Dependencies
+
+Don't spawn the editor before gathering context:
+
+```typescript
+// GOOD: Context first, then edit
+yield { toolName: 'spawn_agents', input: { agents: [file_picker] } }
+yield 'STEP'  // Wait for completion
+yield { toolName: 'spawn_agents', input: { agents: [editor] } }
+
+// BAD: Editor spawned without context
+yield { toolName: 'spawn_agents', input: { 
+  agents: [file_picker, editor]  // Editor can't read files!
+} }
+```
+
+### 3. Let Agents Be Concise
+
+From `base2.ts`:
+```typescript
+// "When prompting an agent, realize that many agents can 
+// already see the entire conversation history, so you can 
+// be brief in prompting them without needing to include context."
+
+// GOOD:
+{ agent_type: 'editor' }  // No prompt needed, sees everything
+
+// BAD:
+{ 
+  agent_type: 'editor',
+  prompt: 'We need to add rate limiting. I found these files...' 
+  // Unnecessary - editor already knows!
+}
+```
+
+### 4. Use Quality Control Agents
+
+Always validate changes:
+
+```typescript
+// After making changes, spawn validation agents in parallel:
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [
+      { agent_type: 'commander', params: { command: 'npm test' } },
+      { agent_type: 'commander', params: { command: 'npx tsc' } },
+      { agent_type: 'code-reviewer' }
+    ]
+  }
+}
+```
+
+## Advanced: Creating Orchestration Agents
+
+You can create your own orchestration agents:
+
+```typescript
+export default {
+  id: 'test-automation-agent',
+  displayName: 'Test Automation Agent',
+  model: 'openai/gpt-5.1',
+  
+  toolNames: ['spawn_agents', 'read_files'],
+  spawnableAgents: ['file-picker', 'commander', 'editor'],
+  
+  handleSteps: function* () {
+    // 1. Find test files
+    yield {
+      toolName: 'spawn_agents',
+      input: { agents: [
+        { agent_type: 'file-picker', prompt: 'Find all test files' }
+      ]}
+    }
+    
+    // 2. Run tests
+    const { toolResult } = yield {
+      toolName: 'spawn_agents',
+      input: { agents: [
+        { agent_type: 'commander', 
+          params: { command: 'npm test' } }
+      ]}
+    }
+    
+    // 3. If failures, fix them
+    const { stepsComplete } = yield 'STEP'
+    if (!stepsComplete) {
+      yield {
+        toolName: 'spawn_agents',
+        input: { agents: [{ agent_type: 'editor' }] }
+      }
+    }
+  }
+}
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agents" icon="robot" href="/concepts/agents">
+    Learn about each agent type
+  </Card>
+  <Card title="Tools" icon="wrench" href="/concepts/tools">
+    Explore available tools
+  </Card>
+  <Card title="Creating Agents" icon="code" href="/agents/creating-agents">
+    Build your own agents
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/concepts/architecture">
+    System architecture overview
+  </Card>
+</CardGroup>

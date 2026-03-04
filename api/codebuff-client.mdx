@@ -1,0 +1,288 @@
+---
+title: CodebuffClient
+description: Main SDK client class for interacting with Codebuff agents
+---
+
+## Overview
+
+`CodebuffClient` is the primary class for interacting with the Codebuff SDK. It manages configuration, API authentication, and provides methods to run agents and check connection status.
+
+## Constructor
+
+```typescript
+new CodebuffClient(options: CodebuffClientOptions)
+```
+
+Creates a new Codebuff client instance with the specified configuration.
+
+### Parameters
+
+<ParamField path="options" type="CodebuffClientOptions" required>
+  Configuration options for the client
+  
+  <Expandable title="CodebuffClientOptions properties">
+    <ParamField path="apiKey" type="string">
+      Your Codebuff API key. If not provided, will attempt to read from `CODEBUFF_API_KEY` environment variable.
+    </ParamField>
+    
+    <ParamField path="cwd" type="string">
+      Current working directory for file operations. Defaults to `process.cwd()`.
+    </ParamField>
+    
+    <ParamField path="skillsDir" type="string">
+      Optional directory path to load skills from. Skills found here will be available to the `skill` tool.
+    </ParamField>
+    
+    <ParamField path="projectFiles" type="Record<string, string>">
+      All files in your project as key-value pairs. Keys are file paths (relative to cwd), values are file contents. This helps Codebuff pick good source files for context.
+      
+      Example: `{ "src/index.ts": "console.log('hi')" }`
+    </ParamField>
+    
+    <ParamField path="knowledgeFiles" type="Record<string, string>">
+      Knowledge files to inject into every run() call. Same schema as projectFiles. These files are added directly to the agent's context.
+    </ParamField>
+    
+    <ParamField path="agentDefinitions" type="AgentDefinition[]">
+      Array of custom agent definitions. See [AgentDefinition](/api/agent-definition) for details.
+    </ParamField>
+    
+    <ParamField path="maxAgentSteps" type="number">
+      Maximum number of steps the agent can take before stopping. Use as a safety measure (recommended: ~20).
+    </ParamField>
+    
+    <ParamField path="env" type="Record<string, string>">
+      Environment variables to pass to terminal commands executed by the agent. Merged with process environment.
+    </ParamField>
+    
+    <ParamField path="handleEvent" type="(event: PrintModeEvent) => void | Promise<void>">
+      Callback function that receives events during execution (assistant messages, tool calls, errors, etc.).
+      
+      Event types:
+      - `{ type: 'error', message: string }` - Error occurred
+      - `{ type: 'assistant_message', content: string }` - Agent message
+      - `{ type: 'tool_call', toolName: string, input: any }` - Tool invocation
+    </ParamField>
+    
+    <ParamField path="handleStreamChunk" type="(chunk: string | object) => void | Promise<void>">
+      Callback for token-by-token streaming. Receives:
+      - Plain strings for main agent output
+      - `{ type: 'subagent_chunk', agentId: string, agentType: string, chunk: string }` for subagent output
+      - `{ type: 'reasoning_chunk', agentId: string, ancestorRunIds: string[], chunk: string }` for reasoning tokens
+    </ParamField>
+    
+    <ParamField path="fileFilter" type="FileFilter">
+      Optional filter to classify files before reading (runs before gitignore check).
+      
+      Type: `(filePath: string) => { status: 'blocked' | 'allow-example' | 'allow' }`
+    </ParamField>
+    
+    <ParamField path="overrideTools" type="Partial<ToolOverrides>">
+      Override default tool implementations. Useful for customizing file operations, terminal commands, etc.
+      
+      Example:
+      ```typescript
+      overrideTools: {
+        read_files: async ({ filePaths }) => {
+          // Custom file reading logic
+          return { 'file.txt': 'content' }
+        }
+      }
+      ```
+    </ParamField>
+    
+    <ParamField path="customToolDefinitions" type="CustomToolDefinition[]">
+      Array of custom tool definitions that extend the agent's capabilities. See [CustomTool](/api/custom-tool) for details.
+    </ParamField>
+    
+    <ParamField path="fsSource" type="Source<CodebuffFileSystem>">
+      Custom filesystem implementation. Defaults to Node.js `fs.promises`.
+    </ParamField>
+    
+    <ParamField path="spawnSource" type="Source<CodebuffSpawn>">
+      Custom process spawning implementation. Defaults to Node.js `child_process.spawn`.
+    </ParamField>
+    
+    <ParamField path="logger" type="Logger">
+      Custom logger implementation. Defaults to no-op logger.
+      
+      Interface:
+      ```typescript
+      {
+        debug: (obj?: any, msg?: string) => void
+        info: (obj?: any, msg?: string) => void
+        warn: (obj?: any, msg?: string) => void
+        error: (obj?: any, msg?: string) => void
+      }
+      ```
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Throws
+
+Throws an error if API key is not provided and cannot be found in environment variables.
+
+### Example
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+
+const client = new CodebuffClient({
+  apiKey: 'your-api-key',
+  cwd: process.cwd(),
+  maxAgentSteps: 20,
+  handleEvent: (event) => {
+    if (event.type === 'error') {
+      console.error('Error:', event.message)
+    }
+  }
+})
+```
+
+## Methods
+
+### run()
+
+Run a Codebuff agent with the specified options.
+
+```typescript
+async run(options: RunOptions & CodebuffClientOptions): Promise<RunState>
+```
+
+<ParamField path="options" type="RunOptions & CodebuffClientOptions" required>
+  Run configuration options. Accepts all CodebuffClientOptions plus:
+  
+  <Expandable title="RunOptions properties">
+    <ParamField path="agent" type="string | AgentDefinition" required>
+      The agent to run. Use 'base' for the default agent, or specify a custom agent ID if you made your own agent config. Can also be an inline AgentDefinition object.
+    </ParamField>
+    
+    <ParamField path="prompt" type="string" required>
+      The user prompt describing what you want the agent to do.
+    </ParamField>
+    
+    <ParamField path="content" type="MessageContent[]">
+      Content array for multimodal messages (text + images).
+      
+      ```typescript
+      type MessageContent = 
+        | { type: 'text', text: string }
+        | { type: 'image', image: string, mediaType: string } // base64 encoded
+      ```
+    </ParamField>
+    
+    <ParamField path="params" type="Record<string, any>">
+      Additional parameters for the agent. Most agents don't use this, but some custom agents can take a JSON object as input.
+    </ParamField>
+    
+    <ParamField path="previousRun" type="RunState">
+      JSON state returned from a previous run() call. Use this to continue a conversation or session with the agent.
+    </ParamField>
+    
+    <ParamField path="extraToolResults" type="ToolMessage[]">
+      Additional tool result messages to inject into the conversation.
+    </ParamField>
+    
+    <ParamField path="signal" type="AbortSignal">
+      AbortSignal for canceling the run. Use with AbortController.
+      
+      Example:
+      ```typescript
+      const controller = new AbortController()
+      client.run({ agent: 'base', prompt: 'Hello', signal: controller.signal })
+      // Later: controller.abort()
+      ```
+    </ParamField>
+    
+    <ParamField path="costMode" type="string">
+      Cost optimization mode. Defaults to 'normal'.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ResponseField name="return" type="Promise<RunState>">
+  Returns a RunState object containing session state and output.
+  
+  <Expandable title="RunState structure">
+    <ResponseField name="sessionState" type="SessionState | undefined">
+      Opaque session state object. Pass to subsequent run() calls to continue the conversation.
+    </ResponseField>
+    
+    <ResponseField name="output" type="AgentOutput">
+      The agent's output result.
+      
+      Success:
+      ```typescript
+      { type: 'success', message: string }
+      ```
+      
+      Error:
+      ```typescript
+      { type: 'error', message: string, statusCode?: number }
+      ```
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+#### Example
+
+```typescript
+const result = await client.run({
+  agent: 'base',
+  prompt: 'List all TypeScript files in the src directory',
+})
+
+if (result.output.type === 'success') {
+  console.log('Success:', result.output.message)
+} else {
+  console.error('Error:', result.output.message)
+}
+
+// Continue the conversation
+const followUp = await client.run({
+  agent: 'base',
+  prompt: 'Now analyze the first file',
+  previousRun: result
+})
+```
+
+### checkConnection()
+
+Check connection to the Codebuff backend by hitting the /healthz endpoint.
+
+```typescript
+async checkConnection(): Promise<boolean>
+```
+
+<ResponseField name="return" type="Promise<boolean>">
+  Returns `true` if connected successfully, `false` otherwise. Times out after 5 seconds.
+</ResponseField>
+
+#### Example
+
+```typescript
+const isConnected = await client.checkConnection()
+if (!isConnected) {
+  console.error('Cannot connect to Codebuff backend')
+}
+```
+
+## Properties
+
+### options
+
+The resolved client configuration including API key and fingerprint ID.
+
+```typescript
+public options: CodebuffClientOptions & {
+  apiKey: string
+  fingerprintId: string
+}
+```
+
+## Related Types
+
+- [RunOptions](/api/run-options) - Run configuration interface
+- [AgentDefinition](/api/agent-definition) - Custom agent definition
+- [CustomToolDefinition](/api/custom-tool) - Custom tool creation

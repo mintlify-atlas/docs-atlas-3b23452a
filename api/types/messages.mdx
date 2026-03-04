@@ -1,0 +1,482 @@
+---
+title: Message Types
+description: Message structures used in Codebuff conversations
+---
+
+Messages represent the conversation between users and agents. All messages follow a structured format with roles and content parts.
+
+## Message Type
+
+```typescript
+type Message =
+  | SystemMessage
+  | UserMessage
+  | AssistantMessage
+  | ToolMessage
+```
+
+All messages are discriminated by the `role` field.
+
+---
+
+## System Message
+
+Contains system-level instructions or context.
+
+<ResponseField name="role" type="'system'" required>
+  Message role identifier
+</ResponseField>
+
+<ResponseField name="content" type="TextPart[]" required>
+  Array of text content parts
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  role: 'system',
+  content: [
+    {
+      type: 'text',
+      text: 'You are a helpful coding assistant.'
+    }
+  ]
+}
+```
+
+---
+
+## User Message
+
+Contains input from the user.
+
+<ResponseField name="role" type="'user'" required>
+  Message role identifier
+</ResponseField>
+
+<ResponseField name="content" type="(TextPart | ImagePart | FilePart)[]" required>
+  Array of content parts (text, images, or files)
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  role: 'user',
+  content: [
+    {
+      type: 'text',
+      text: 'Create a TypeScript config file'
+    },
+    {
+      type: 'image',
+      image: 'data:image/png;base64,...',
+      mediaType: 'image/png'
+    }
+  ]
+}
+```
+
+---
+
+## Assistant Message
+
+Contains the agent's response.
+
+<ResponseField name="role" type="'assistant'" required>
+  Message role identifier
+</ResponseField>
+
+<ResponseField name="content" type="(TextPart | ReasoningPart | ToolCallPart)[]" required>
+  Array of content parts (text, reasoning, or tool calls)
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  role: 'assistant',
+  content: [
+    {
+      type: 'text',
+      text: 'I will create the config file now.'
+    },
+    {
+      type: 'tool-call',
+      toolCallId: 'call_123',
+      toolName: 'write_file',
+      input: {
+        path: 'tsconfig.json',
+        content: '{"compilerOptions":{}}'
+      }
+    }
+  ]
+}
+```
+
+---
+
+## Tool Message
+
+Contains the result of a tool execution.
+
+<ResponseField name="role" type="'tool'" required>
+  Message role identifier
+</ResponseField>
+
+<ResponseField name="toolCallId" type="string" required>
+  ID matching the tool call from the assistant message
+</ResponseField>
+
+<ResponseField name="toolName" type="string" required>
+  Name of the tool that was executed
+</ResponseField>
+
+<ResponseField name="content" type="ToolResultOutput[]" required>
+  Array of output results from the tool
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  role: 'tool',
+  toolCallId: 'call_123',
+  toolName: 'write_file',
+  content: [
+    {
+      type: 'json',
+      value: {
+        success: true,
+        path: 'tsconfig.json'
+      }
+    }
+  ]
+}
+```
+
+---
+
+## Content Parts
+
+Content is broken into typed parts that can be mixed in messages.
+
+### Text Part
+
+<ResponseField name="type" type="'text'" required>
+  Content part type
+</ResponseField>
+
+<ResponseField name="text" type="string" required>
+  The text content
+</ResponseField>
+
+<ResponseField name="providerOptions" type="ProviderMetadata">
+  Optional provider-specific metadata
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  type: 'text',
+  text: 'Create a new file'
+}
+```
+
+---
+
+### Image Part
+
+<ResponseField name="type" type="'image'" required>
+  Content part type
+</ResponseField>
+
+<ResponseField name="image" type="string | URL" required>
+  Image data as base64 data URI or URL object
+</ResponseField>
+
+<ResponseField name="mediaType" type="string">
+  MIME type of the image (e.g., `image/png`, `image/jpeg`)
+</ResponseField>
+
+<ResponseField name="providerOptions" type="ProviderMetadata">
+  Optional provider-specific metadata
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  type: 'image',
+  image: 'data:image/png;base64,iVBORw0KGgoAAAANS...',
+  mediaType: 'image/png'
+}
+```
+
+---
+
+### File Part
+
+<ResponseField name="type" type="'file'" required>
+  Content part type
+</ResponseField>
+
+<ResponseField name="data" type="string | URL" required>
+  File data as base64 data URI or URL object
+</ResponseField>
+
+<ResponseField name="filename" type="string">
+  Name of the file
+</ResponseField>
+
+<ResponseField name="mediaType" type="string" required>
+  MIME type of the file
+</ResponseField>
+
+<ResponseField name="providerOptions" type="ProviderMetadata">
+  Optional provider-specific metadata
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  type: 'file',
+  data: 'data:application/pdf;base64,JVBERi0...',
+  filename: 'document.pdf',
+  mediaType: 'application/pdf'
+}
+```
+
+---
+
+### Reasoning Part
+
+Contains the agent's reasoning or thinking process.
+
+<ResponseField name="type" type="'reasoning'" required>
+  Content part type
+</ResponseField>
+
+<ResponseField name="text" type="string" required>
+  The reasoning text
+</ResponseField>
+
+<ResponseField name="providerOptions" type="ProviderMetadata">
+  Optional provider-specific metadata
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  type: 'reasoning',
+  text: 'I need to check if the file exists before modifying it...'
+}
+```
+
+---
+
+### Tool Call Part
+
+Represents a tool invocation by the agent.
+
+<ResponseField name="type" type="'tool-call'" required>
+  Content part type
+</ResponseField>
+
+<ResponseField name="toolCallId" type="string" required>
+  Unique identifier for this tool call
+</ResponseField>
+
+<ResponseField name="toolName" type="string" required>
+  Name of the tool to call
+</ResponseField>
+
+<ResponseField name="input" type="Record<string, unknown>" required>
+  Input parameters for the tool
+</ResponseField>
+
+<ResponseField name="providerOptions" type="ProviderMetadata">
+  Optional provider-specific metadata
+</ResponseField>
+
+<ResponseField name="providerExecuted" type="boolean">
+  Whether the provider executed this tool call
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  type: 'tool-call',
+  toolCallId: 'call_abc123',
+  toolName: 'run_terminal_command',
+  input: {
+    command: 'npm test',
+    process_type: 'SYNC'
+  }
+}
+```
+
+---
+
+## Tool Result Output
+
+Tool execution results can be JSON or media data.
+
+### JSON Output
+
+<ResponseField name="type" type="'json'" required>
+  Output type identifier
+</ResponseField>
+
+<ResponseField name="value" type="any" required>
+  JSON value returned by the tool
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  type: 'json',
+  value: {
+    success: true,
+    exitCode: 0,
+    stdout: 'All tests passed'
+  }
+}
+```
+
+---
+
+### Media Output
+
+<ResponseField name="type" type="'media'" required>
+  Output type identifier
+</ResponseField>
+
+<ResponseField name="data" type="string" required>
+  Base64-encoded media data
+</ResponseField>
+
+<ResponseField name="mediaType" type="string" required>
+  MIME type (e.g., `image/png`, `application/pdf`)
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  type: 'media',
+  data: 'iVBORw0KGgoAAAANSUhEUgA...',
+  mediaType: 'image/png'
+}
+```
+
+---
+
+## Auxiliary Message Data
+
+All message types include optional metadata fields:
+
+<ResponseField name="providerOptions" type="ProviderMetadata">
+  Provider-specific options and metadata
+</ResponseField>
+
+<ResponseField name="tags" type="string[]">
+  Tags for categorizing or filtering messages (e.g., `USER_PROMPT`, `SYSTEM`)
+</ResponseField>
+
+<ResponseField name="sentAt" type="number">
+  Unix timestamp (ms) when the message was added to history. Used for prompt cache expiry detection.
+</ResponseField>
+
+**Deprecated fields:**
+
+<ResponseField name="timeToLive" type="'agentStep' | 'userPrompt'" deprecated>
+  Use `tags` instead
+</ResponseField>
+
+<ResponseField name="keepDuringTruncation" type="boolean" deprecated>
+  Use `tags` instead
+</ResponseField>
+
+<ResponseField name="keepLastTags" type="string[]" deprecated>
+  Use `tags` instead
+</ResponseField>
+
+---
+
+## Building Messages
+
+### Simple Text Message
+
+```typescript
+const result = await client.run({
+  agent: 'base',
+  prompt: 'Create a hello world script'
+})
+```
+
+---
+
+### Multimodal Message with Images
+
+```typescript
+const result = await client.run({
+  agent: 'base',
+  prompt: 'Fix the bug shown in this screenshot',
+  content: [
+    {
+      type: 'text',
+      text: 'Fix the bug shown in this screenshot'
+    },
+    {
+      type: 'image',
+      image: 'data:image/png;base64,iVBORw0KG...',
+      mediaType: 'image/png'
+    }
+  ]
+})
+```
+
+---
+
+### Continuing with Previous Messages
+
+```typescript
+const firstRun = await client.run({
+  agent: 'base',
+  prompt: 'Create a file'
+})
+
+// The message history is preserved in sessionState
+const secondRun = await client.run({
+  agent: 'base',
+  prompt: 'Now add tests',
+  previousRun: firstRun // Includes full message history
+})
+```
+
+---
+
+## Accessing Message History
+
+```typescript
+const result = await client.run({
+  agent: 'base',
+  prompt: 'Write some code'
+})
+
+if (result.sessionState) {
+  const messages = result.sessionState.mainAgentState.messageHistory
+  
+  for (const message of messages) {
+    if (message.role === 'user') {
+      console.log('User:', message.content)
+    } else if (message.role === 'assistant') {
+      for (const part of message.content) {
+        if (part.type === 'text') {
+          console.log('Agent:', part.text)
+        } else if (part.type === 'tool-call') {
+          console.log('Tool call:', part.toolName, part.input)
+        }
+      }
+    } else if (message.role === 'tool') {
+      console.log('Tool result:', message.toolName, message.content)
+    }
+  }
+}
+```

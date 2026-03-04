@@ -1,0 +1,403 @@
+---
+title: Event Handling
+description: Handle real-time events from agent execution
+---
+
+The `handleEvent` callback provides real-time visibility into agent execution, allowing you to track progress, log activity, and build interactive UIs.
+
+## Basic Usage
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY,
+})
+
+const result = await client.run({
+  agent: 'codebuff/base@0.0.16',
+  prompt: 'Create a calculator class',
+  handleEvent: (event) => {
+    console.log(`Event: ${event.type}`)
+  },
+})
+```
+
+## Event Types
+
+The `handleEvent` callback receives a `PrintModeEvent` which can be one of several types:
+
+### start
+
+Agent execution has started.
+
+```typescript
+type PrintModeStart = {
+  type: 'start'
+  agentId?: string
+  messageHistoryLength: number
+}
+```
+
+**Example:**
+```typescript
+handleEvent: (event) => {
+  if (event.type === 'start') {
+    console.log(`Agent started with ${event.messageHistoryLength} previous messages`)
+  }
+}
+```
+
+### text
+
+The agent generated text output.
+
+```typescript
+type PrintModeText = {
+  type: 'text'
+  text: string
+  agentId?: string
+}
+```
+
+**Example:**
+```typescript
+handleEvent: (event) => {
+  if (event.type === 'text') {
+    process.stdout.write(event.text)  // Stream to console
+  }
+}
+```
+
+### tool_call
+
+The agent is calling a tool.
+
+```typescript
+type PrintModeToolCall = {
+  type: 'tool_call'
+  toolCallId: string
+  toolName: string
+  input: Record<string, any>
+  agentId?: string
+  parentAgentId?: string
+  includeToolCall?: boolean
+}
+```
+
+**Example:**
+```typescript
+handleEvent: (event) => {
+  if (event.type === 'tool_call') {
+    console.log(`Calling ${event.toolName}:`, JSON.stringify(event.input, null, 2))
+  }
+}
+```
+
+### tool_result
+
+A tool call completed with results.
+
+```typescript
+type PrintModeToolResult = {
+  type: 'tool_result'
+  toolCallId: string
+  toolName: string
+  output: ToolResultOutput[]
+  parentAgentId?: string
+}
+```
+
+**Example:**
+```typescript
+handleEvent: (event) => {
+  if (event.type === 'tool_result') {
+    console.log(`${event.toolName} completed`)
+    for (const output of event.output) {
+      if (output.type === 'json') {
+        console.log('Result:', output.value)
+      }
+    }
+  }
+}
+```
+
+### subagent_start
+
+A subagent was spawned.
+
+```typescript
+type PrintModeSubagentStart = {
+  type: 'subagent_start'
+  agentId: string
+  agentType: string
+  displayName: string
+  onlyChild: boolean
+  parentAgentId?: string
+  params?: Record<string, any>
+  prompt?: string
+}
+```
+
+**Example:**
+```typescript
+handleEvent: (event) => {
+  if (event.type === 'subagent_start') {
+    console.log(`Spawned ${event.displayName} (${event.agentType})`)
+    if (event.prompt) {
+      console.log(`Prompt: ${event.prompt}`)
+    }
+  }
+}
+```
+
+### subagent_finish
+
+A subagent completed execution.
+
+```typescript
+type PrintModeSubagentFinish = {
+  type: 'subagent_finish'
+  agentId: string
+  agentType: string
+  displayName: string
+  onlyChild: boolean
+  parentAgentId?: string
+  params?: Record<string, any>
+  prompt?: string
+}
+```
+
+### error
+
+An error occurred during execution.
+
+```typescript
+type PrintModeError = {
+  type: 'error'
+  message: string
+}
+```
+
+**Example:**
+```typescript
+handleEvent: (event) => {
+  if (event.type === 'error') {
+    console.error('Error:', event.message)
+  }
+}
+```
+
+### finish
+
+Agent execution completed.
+
+```typescript
+type PrintModeFinish = {
+  type: 'finish'
+  agentId?: string
+  totalCost: number
+}
+```
+
+**Example:**
+```typescript
+handleEvent: (event) => {
+  if (event.type === 'finish') {
+    console.log(`Completed. Cost: $${event.totalCost.toFixed(4)}`)
+  }
+}
+```
+
+### reasoning_delta
+
+Reasoning token stream (for models that support it).
+
+```typescript
+type PrintModeReasoningDelta = {
+  type: 'reasoning_delta'
+  text: string
+  ancestorRunIds: string[]
+  runId: string
+}
+```
+
+## Complete Example: Progress Tracker
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+import type { PrintModeEvent } from '@codebuff/sdk'
+
+class ProgressTracker {
+  private toolCalls = new Map<string, { name: string; startTime: number }>()
+  private totalCost = 0
+
+  handleEvent = (event: PrintModeEvent) => {
+    switch (event.type) {
+      case 'start':
+        console.log('\n🚀 Agent started')
+        break
+
+      case 'text':
+        process.stdout.write(event.text)
+        break
+
+      case 'tool_call':
+        this.toolCalls.set(event.toolCallId, {
+          name: event.toolName,
+          startTime: Date.now(),
+        })
+        console.log(`\n🔧 ${event.toolName}...`)
+        break
+
+      case 'tool_result': {
+        const call = this.toolCalls.get(event.toolCallId)
+        if (call) {
+          const duration = Date.now() - call.startTime
+          console.log(`✓ ${call.name} (${duration}ms)`)
+          this.toolCalls.delete(event.toolCallId)
+        }
+        break
+      }
+
+      case 'subagent_start':
+        console.log(`\n👤 Spawned: ${event.displayName}`)
+        break
+
+      case 'subagent_finish':
+        console.log(`✓ ${event.displayName} completed`)
+        break
+
+      case 'error':
+        console.error(`\n❌ Error: ${event.message}`)
+        break
+
+      case 'finish':
+        this.totalCost = event.totalCost
+        console.log(`\n✅ Completed (Cost: $${event.totalCost.toFixed(4)})`)
+        break
+    }
+  }
+
+  getCost(): number {
+    return this.totalCost
+  }
+}
+
+async function main() {
+  const client = new CodebuffClient({
+    apiKey: process.env.CODEBUFF_API_KEY,
+    cwd: process.cwd(),
+  })
+
+  const tracker = new ProgressTracker()
+
+  const result = await client.run({
+    agent: 'codebuff/base@0.0.16',
+    prompt: 'Create a calculator class and add tests',
+    handleEvent: tracker.handleEvent,
+  })
+
+  if (result.output.type === 'error') {
+    console.error('\nFailed:', result.output.message)
+  } else {
+    console.log('\nSuccess! Total cost:', tracker.getCost())
+  }
+}
+
+main()
+```
+
+## Example: Event Logger
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+import { promises as fs } from 'fs'
+
+class EventLogger {
+  private events: any[] = []
+  private logFile: string
+
+  constructor(logFile: string) {
+    this.logFile = logFile
+  }
+
+  handleEvent = (event: any) => {
+    this.events.push({
+      timestamp: new Date().toISOString(),
+      ...event,
+    })
+  }
+
+  async save() {
+    await fs.writeFile(
+      this.logFile,
+      JSON.stringify(this.events, null, 2),
+    )
+  }
+}
+
+async function main() {
+  const client = new CodebuffClient({
+    apiKey: process.env.CODEBUFF_API_KEY,
+  })
+
+  const logger = new EventLogger('./events.json')
+
+  await client.run({
+    agent: 'codebuff/base@0.0.16',
+    prompt: 'Generate a README',
+    handleEvent: logger.handleEvent,
+  })
+
+  await logger.save()
+  console.log('Events saved to events.json')
+}
+
+main()
+```
+
+## Async Event Handlers
+
+Event handlers can be async:
+
+```typescript
+handleEvent: async (event) => {
+  if (event.type === 'tool_call') {
+    // Save to database
+    await db.toolCalls.insert({
+      toolName: event.toolName,
+      input: event.input,
+      timestamp: new Date(),
+    })
+  }
+}
+```
+
+## Filtering Events
+
+```typescript
+handleEvent: (event) => {
+  // Only log errors and completions
+  if (event.type === 'error' || event.type === 'finish') {
+    console.log(event)
+  }
+}
+```
+
+## Type Definition
+
+```typescript
+export type PrintModeEvent =
+  | PrintModeStart
+  | PrintModeText
+  | PrintModeToolCall
+  | PrintModeToolResult
+  | PrintModeSubagentStart
+  | PrintModeSubagentFinish
+  | PrintModeError
+  | PrintModeFinish
+  | PrintModeReasoningDelta
+
+type HandleEvent = (event: PrintModeEvent) => void | Promise<void>
+```

@@ -1,0 +1,249 @@
+---
+title: Model Providers
+description: Understanding model providers and configuration in Codebuff
+---
+
+Codebuff supports multiple AI model providers through OpenRouter, giving you access to the latest models from Anthropic, OpenAI, Google, and more.
+
+## OpenRouter Integration
+
+Codebuff routes requests through OpenRouter by default, which provides access to a wide variety of models. The framework automatically handles:
+
+- Model routing and fallbacks
+- Cost tracking and optimization
+- Provider selection based on availability
+- Authentication and API key management
+
+### How It Works
+
+When you make a request, Codebuff:
+
+1. Receives your API key via the `Authorization` header
+2. Routes the request to the Codebuff backend
+3. Forwards to OpenRouter with proper authentication
+4. Tracks usage and costs automatically
+
+From `sdk/src/impl/model-provider.ts:298-320`:
+
+```typescript
+function createCodebuffBackendModel(
+  apiKey: string,
+  model: string,
+): LanguageModel {
+  return new OpenAICompatibleChatLanguageModel(model, {
+    provider: 'codebuff',
+    url: ({ path: endpoint }) =>
+      new URL(path.join('/api/v1', endpoint), WEBSITE_URL).toString(),
+    headers: () => ({
+      Authorization: `Bearer ${apiKey}`,
+      'user-agent': `ai-sdk/openai-compatible/VERSION/codebuff`,
+    }),
+    // ... metadata extraction for cost tracking
+  })
+}
+```
+
+## Available Models
+
+Codebuff provides access to leading models through OpenRouter. Here are the most commonly used:
+
+### Claude Models (Anthropic)
+
+```typescript
+const claudeModels = {
+  // Claude 4 (Latest)
+  'anthropic/claude-sonnet-4.5': 'Claude Sonnet 4.5',
+  'anthropic/claude-4-sonnet-20250522': 'Claude 4 Sonnet',
+  'anthropic/claude-opus-4.1': 'Claude Opus 4.1',
+  
+  // Claude 3.5
+  'anthropic/claude-3.5-haiku-20241022': 'Claude 3.5 Haiku',
+  'anthropic/claude-3.5-sonnet-20240620': 'Claude 3.5 Sonnet',
+}
+```
+
+### OpenAI Models
+
+```typescript
+const openaiModels = {
+  'openai/gpt-4o-2024-11-20': 'GPT-4o',
+  'openai/gpt-4o-mini-2024-07-18': 'GPT-4o Mini',
+  'openai/gpt-5.1': 'GPT-5',
+  'openai/o3-mini-2025-01-31': 'O3 Mini',
+  'openai/gpt-4.1-nano': 'GPT-4.1 Nano',
+}
+```
+
+### Google Models
+
+```typescript
+const googleModels = {
+  'google/gemini-2.5-pro': 'Gemini 2.5 Pro',
+  'google/gemini-2.5-flash': 'Gemini 2.5 Flash',
+  'google/gemini-2.5-flash-preview:thinking': 'Gemini 2.5 Flash Thinking',
+}
+```
+
+### Other Providers
+
+```typescript
+const otherModels = {
+  'x-ai/grok-4-07-09': 'Grok 4',
+}
+```
+
+## Model Selection in Agents
+
+When creating an agent, specify the model using OpenRouter's format:
+
+```typescript
+import { agent } from '@codebuff/sdk'
+
+export default agent({
+  name: 'my-agent',
+  model: 'anthropic/claude-4-sonnet-20250522',
+  system: 'You are a helpful assistant.',
+  tools: ['bash', 'read', 'edit'],
+})
+```
+
+### Model Aliases
+
+Codebuff supports convenient aliases for common models:
+
+```typescript
+const modelAliases = {
+  'opus-4': 'anthropic/claude-opus-4.1',
+  'sonnet-4.5': 'anthropic/claude-sonnet-4.5',
+  'sonnet-4': 'anthropic/claude-4-sonnet-20250522',
+  'flash-2.5': 'google/gemini-2.5-flash',
+  'gemini-2.5-pro': 'google/gemini-2.5-pro',
+}
+```
+
+Use aliases in your agent definition:
+
+```typescript
+export default agent({
+  name: 'my-agent',
+  model: 'sonnet-4', // Resolves to anthropic/claude-4-sonnet-20250522
+  // ...
+})
+```
+
+## Model Configuration
+
+### Provider Routing
+
+Codebuff automatically configures provider routing for optimal performance and reliability:
+
+```typescript
+// From sdk/src/impl/llm.ts:37-49
+const providerOrder = {
+  'anthropic/claude-4-sonnet-20250522': [
+    'Google',
+    'Anthropic',
+    'Amazon Bedrock',
+  ],
+  'anthropic/claude-sonnet-4.5': [
+    'Google',
+    'Anthropic',
+    'Amazon Bedrock',
+  ],
+  'anthropic/claude-opus-4.1': ['Google', 'Anthropic'],
+}
+```
+
+### Custom Provider Options
+
+For advanced use cases, configure provider routing in your agent:
+
+```typescript
+export default agent({
+  name: 'my-agent',
+  model: 'anthropic/claude-4-sonnet-20250522',
+  providerOptions: {
+    order: ['Anthropic', 'Google'],
+    allow_fallbacks: true,
+  },
+})
+```
+
+See [OpenRouter Provider Routing](https://openrouter.ai/docs/features/provider-routing) for details.
+
+## Claude OAuth (Advanced)
+
+For Claude models, Codebuff supports direct OAuth authentication with Anthropic, bypassing OpenRouter:
+
+### Benefits
+
+- Direct API access to Anthropic
+- Potentially lower latency
+- Use your Claude subscription directly
+- No OpenRouter intermediary
+
+### How It Works
+
+```typescript
+// From sdk/src/impl/model-provider.ts:171-194
+export async function getModelForRequest(params: ModelRequestParams): Promise<ModelResult> {
+  const { apiKey, model, skipClaudeOAuth } = params
+
+  // Check if we should use Claude OAuth direct
+  if (CLAUDE_OAUTH_ENABLED && !skipClaudeOAuth && !isClaudeOAuthRateLimited() && isClaudeModel(model)) {
+    const claudeOAuthCredentials = await getValidClaudeOAuthCredentials()
+    if (claudeOAuthCredentials) {
+      return {
+        model: createAnthropicOAuthModel(model, claudeOAuthCredentials.accessToken),
+        isClaudeOAuth: true,
+      }
+    }
+  }
+
+  // Default: use Codebuff backend
+  return {
+    model: createCodebuffBackendModel(apiKey, model),
+    isClaudeOAuth: false,
+  }
+}
+```
+
+### Rate Limiting
+
+ClaudeCoduff automatically handles Claude OAuth rate limits:
+
+- Detects 429 rate limit errors
+- Fetches reset time from Anthropic API
+- Automatically falls back to OpenRouter
+- Resumes OAuth when rate limit expires
+
+```typescript
+// Rate limit tracking
+let claudeOAuthRateLimitedUntil: number | null = null
+
+export function markClaudeOAuthRateLimited(resetAt?: Date): void {
+  const fiveMinutesFromNow = Date.now() + 5 * 60 * 1000
+  claudeOAuthRateLimitedUntil = resetAt ? resetAt.getTime() : fiveMinutesFromNow
+}
+```
+
+## Cost Tracking
+
+Codebuff tracks model usage costs automatically:
+
+```typescript
+type OpenRouterUsageAccounting = {
+  cost: number | null
+  costDetails: {
+    upstreamInferenceCost: number | null
+  }
+}
+```
+
+Access cost information from the agent runtime metadata.
+
+## Next Steps
+
+- Learn about [Credentials Management](/advanced/credentials)
+- Explore [Error Handling](/advanced/error-handling)
+- See [Agent Definition](/agents/agent-definition) for full configuration options

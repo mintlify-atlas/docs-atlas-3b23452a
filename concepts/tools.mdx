@@ -1,0 +1,798 @@
+---
+title: Tools
+description: Complete reference of built-in tools that Codebuff agents can use
+---
+
+# Tools
+
+Tools are the **actions agents can perform** - reading files, searching code, running commands, spawning other agents, and more. Each agent has access to a specific set of tools defined in its `toolNames` array.
+
+## What Are Tools?
+
+Tools are functions that agents call to interact with:
+- The filesystem (read, write, edit files)
+- The codebase (search, glob patterns)
+- The terminal (run commands)
+- Other agents (spawn subagents)
+- The user (ask questions)
+
+Tool implementations live in `sdk/src/tools/` and are defined in the common types.
+
+## Built-in Tools
+
+### File Reading Tools
+
+#### read_files
+
+Reads one or more files from the project.
+
+**Implementation**: `sdk/src/tools/read-files.ts`
+
+**Parameters**:
+```typescript
+{
+  paths: string[]  // Array of file paths to read
+}
+```
+
+**Returns**:
+```typescript
+Record<string, string | null>
+// Maps file path to content
+// Special values:
+// - "[FILE DOES NOT EXIST]" - file not found
+// - "[FILE IGNORED]" - in .gitignore
+// - "[FILE TOO LARGE]" - exceeds 1MB
+// - "[OUTSIDE PROJECT]" - path escapes project root
+```
+
+**Example**:
+```typescript
+yield {
+  toolName: 'read_files',
+  input: { 
+    paths: ['src/index.ts', 'package.json'] 
+  }
+}
+```
+
+**Key features** (from `read-files.ts`):
+- Respects `.gitignore` patterns
+- Maximum file size: 1MB
+- Validates paths to prevent directory traversal
+- Returns special markers for .env.example files: `[TEMPLATE FILE]`
+
+#### read_subtree
+
+Reads an entire directory tree recursively.
+
+**Parameters**:
+```typescript
+{
+  paths: string[]  // Directories to read
+}
+```
+
+**Use cases**:
+- Understanding a component's structure
+- Reading all tests in a directory
+- Exploring unfamiliar code sections
+
+**Example**:
+```typescript
+yield {
+  toolName: 'read_subtree',
+  input: { paths: ['src/components/auth'] }
+}
+```
+
+### File Editing Tools
+
+#### str_replace
+
+Make precise edits to existing files using string replacement.
+
+**Implementation**: `sdk/src/tools/change-file.ts`
+
+**Parameters**:
+```typescript
+{
+  path: string,      // File to edit
+  replacements: [
+    {
+      old: string,   // Exact text to find
+      new: string    // Replacement text
+    }
+  ]
+}
+```
+
+**Returns**:
+```typescript
+{
+  file: string,           // File path
+  message: string,        // "Updated file"
+  unifiedDiff: string,    // Diff of changes
+  errorMessage?: string   // If replacement failed
+}
+```
+
+**Example**:
+```typescript
+yield {
+  toolName: 'str_replace',
+  input: {
+    path: 'src/auth.ts',
+    replacements: [
+      {
+        old: 'const timeout = 1000',
+        new: 'const timeout = 5000'
+      }
+    ]
+  }
+}
+```
+
+<Warning>
+  The `old` string must match EXACTLY including whitespace. If not found, the replacement fails.
+</Warning>
+
+#### write_file
+
+Create a new file or completely overwrite an existing one.
+
+**Parameters**:
+```typescript
+{
+  path: string,       // File path
+  content: string     // Complete file content
+}
+```
+
+**Returns**:
+```typescript
+{
+  file: string,           // File path  
+  message: string,        // "Created new file" or "Updated file"
+  unifiedDiff: string,    // Diff showing changes
+  errorMessage?: string   // If write failed
+}
+```
+
+**Example**:
+```typescript
+yield {
+  toolName: 'write_file',
+  input: {
+    path: 'src/middleware/rateLimit.ts',
+    content: `import rateLimit from 'express-rate-limit'\n\nexport const limiter = rateLimit({\n  windowMs: 15 * 60 * 1000,\n  max: 100\n})`
+  }
+}
+```
+
+**Use cases**:
+- Creating new files
+- Major refactors where str_replace is impractical
+- Generating boilerplate
+
+#### propose_str_replace / propose_write_file
+
+Propose file changes without executing them (used for planning).
+
+**Parameters**: Same as `str_replace` and `write_file`
+
+**Use cases**:
+- Planning changes before implementation
+- Getting user approval for changes
+
+### Code Search Tools
+
+#### code_search
+
+Search for patterns in code using ripgrep.
+
+**Implementation**: `sdk/src/tools/code-search.ts`
+
+**Parameters**:
+```typescript
+{
+  pattern: string,    // Regex pattern to search
+  flags?: string,     // Ripgrep flags (e.g., '-i' for case-insensitive)
+  cwd?: string,       // Directory to search within
+  maxResults?: number,           // Per-file limit (default 15)
+  globalMaxResults?: number,     // Total limit (default 250)
+  timeoutSeconds?: number        // Default 10
+}
+```
+
+**Returns**:
+```typescript
+{
+  stdout: string,           // Formatted search results
+  stderr?: string,          // Errors, if any
+  message?: string,         // Status message
+  errorMessage?: string     // If search failed
+}
+```
+
+**Output format**:
+```
+file/path.ts:42:  const result = authenticateUser(req)
+file/path.ts:67:  if (!authenticateUser(req)) {
+other/file.ts:12:  import { authenticateUser } from './auth'
+```
+
+**Key features** (from `code-search.ts`):
+- Uses bundled ripgrep for fast search
+- Searches visible files + blessed hidden dirs: `.agents`, `.github`, `.gitlab`, `.circleci`, `.husky`
+- Limits per file (15 results) and globally (250 results)
+- Streams results, stops early if limits hit
+- 10 second timeout by default
+
+**Example**:
+```typescript
+yield {
+  toolName: 'code_search',
+  input: {
+    pattern: 'authenticateUser',
+    flags: '-i'  // Case-insensitive
+  }
+}
+```
+
+**Common flags**:
+- `-i` - Case-insensitive
+- `-w` - Match whole words
+- `-t ts` - Only TypeScript files
+- `-g '*.test.ts'` - Glob pattern filter
+- `--no-ignore` - Include ignored files
+
+#### glob
+
+Find files matching glob patterns.
+
+**Implementation**: `sdk/src/tools/glob.ts`
+
+**Parameters**:
+```typescript
+{
+  pattern: string,    // Glob pattern (e.g., '**/*.test.ts')
+  cwd?: string       // Directory to search within
+}
+```
+
+**Returns**:
+```typescript
+{
+  files: string[],      // Matching file paths
+  count: number,        // Number of matches
+  message: string       // Summary
+}
+```
+
+**Example**:
+```typescript
+yield {
+  toolName: 'glob',
+  input: { 
+    pattern: '**/*.test.ts' 
+  }
+}
+```
+
+**Common patterns**:
+- `**/*.ts` - All TypeScript files
+- `src/**/*.test.ts` - All test files in src/
+- `**/*.{ts,tsx}` - TypeScript and TSX files
+- `!**/*.spec.ts` - Exclude spec files
+
+#### list_directory
+
+List files in specific directories.
+
+**Parameters**:
+```typescript
+{
+  directories: [
+    { path: string, recursive?: boolean }
+  ]
+}
+```
+
+**Returns**:
+```typescript
+{
+  results: [
+    {
+      directory: string,
+      files: string[],
+      count: number
+    }
+  ]
+}
+```
+
+**Example**:
+```typescript
+yield {
+  toolName: 'list_directory',
+  input: {
+    directories: [
+      { path: 'src', recursive: false }
+    ]
+  }
+}
+```
+
+### Terminal Tools
+
+#### run_terminal_command
+
+Execute shell commands and capture output.
+
+**Implementation**: `sdk/src/tools/run-terminal-command.ts`
+
+**Parameters**:
+```typescript
+{
+  command: string,         // Command to run
+  timeout_seconds?: number, // Default 30, -1 for infinite
+  cwd?: string            // Working directory
+}
+```
+
+**Returns**:
+```typescript
+{
+  command: string,      // Command that was run
+  stdout: string,       // Standard output (colors stripped)
+  stderr?: string,      // Standard error
+  exitCode?: number     // Exit code (0 = success)
+}
+```
+
+**Output limits** (from `run-terminal-command.ts`):
+- `COMMAND_OUTPUT_LIMIT = 50_000` characters
+- Output is truncated from the middle if too long
+- ANSI color codes are stripped
+
+**Example**:
+```typescript
+yield {
+  toolName: 'run_terminal_command',
+  input: {
+    command: 'npm test',
+    timeout_seconds: 120
+  }
+}
+```
+
+**Shell behavior**:
+- Linux/Mac: Uses `bash -c`
+- Windows: Searches for bash in this order:
+  1. `CODEBUFF_GIT_BASH_PATH` environment variable
+  2. Common Git Bash locations
+  3. Non-WSL bash in PATH
+  4. WSL bash (last resort)
+
+<Warning>
+  Commands run in a bash shell. Use proper escaping for quotes and special characters.
+</Warning>
+
+**Common use cases**:
+```typescript
+// Run tests
+{ command: 'npm test' }
+
+// Type check
+{ command: 'npx tsc --noEmit' }
+
+// Lint
+{ command: 'npm run lint' }
+
+// Git operations
+{ command: 'git status --short' }
+{ command: 'git diff' }
+
+// Install packages
+{ command: 'npm install express' }
+```
+
+### Agent Management Tools
+
+#### spawn_agents
+
+Spawn one or more subagents to delegate tasks.
+
+**Parameters**:
+```typescript
+{
+  agents: [
+    {
+      agent_type: string,          // Agent ID to spawn
+      prompt?: string,             // Prompt for the agent
+      params?: Record<string, any> // Agent-specific parameters
+    }
+  ]
+}
+```
+
+**Returns**: Array of agent results (format depends on each agent's `outputMode`)
+
+**Example**:
+```typescript
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [
+      {
+        agent_type: 'file-picker',
+        prompt: 'Find authentication files'
+      },
+      {
+        agent_type: 'code-searcher',
+        prompt: 'Find all imports of express'
+      }
+    ]
+  }
+}
+```
+
+**Accessing results**:
+```typescript
+const { toolResult } = yield {
+  toolName: 'spawn_agents',
+  input: { agents: [...] }
+}
+
+// toolResult is an array
+// Each element: { type: 'json', value: {...} }
+```
+
+See [Multi-Agent Orchestration](/concepts/multi-agent-orchestration) for detailed examples.
+
+### User Interaction Tools
+
+#### ask_user
+
+Ask the user questions and get responses.
+
+**Parameters**:
+```typescript
+{
+  questions: [
+    {
+      question: string,
+      options?: string[],          // Multiple choice options
+      allowMultipleOptions?: boolean,
+      allowOtherText?: boolean     // Allow free text response
+    }
+  ]
+}
+```
+
+**Returns**:
+```typescript
+{
+  answers: [
+    {
+      selectedOption?: string,
+      selectedOptions?: string[],
+      otherText?: string
+    }
+  ],
+  skipped?: boolean  // User skipped the question
+}
+```
+
+**Example**:
+```typescript
+yield {
+  toolName: 'ask_user',
+  input: {
+    questions: [
+      {
+        question: 'Which authentication method should we use?',
+        options: ['JWT', 'OAuth2', 'Session-based'],
+        allowOtherText: true
+      }
+    ]
+  }
+}
+```
+
+#### suggest_followups
+
+Suggest next steps to the user after completing a task.
+
+**Parameters**:
+```typescript
+{
+  followups: string[]  // Suggested next actions
+}
+```
+
+**Example**:
+```typescript
+yield {
+  toolName: 'suggest_followups',
+  input: {
+    followups: [
+      'Add unit tests for the new rate limiter',
+      'Update API documentation',
+      'Configure rate limits in production'
+    ]
+  }
+}
+```
+
+### Output Tools
+
+#### set_output
+
+Set the agent's final output value.
+
+**Parameters**:
+```typescript
+{
+  output: any  // Any JSON-serializable value
+}
+```
+
+**Use cases**:
+- Returning structured data from agent
+- Setting final result for parent agent
+- Returning specific values (not just last message)
+
+**Example**:
+```typescript
+yield {
+  toolName: 'set_output',
+  input: {
+    output: {
+      filesModified: ['src/auth.ts', 'src/middleware.ts'],
+      testsAdded: 5,
+      success: true
+    }
+  }
+}
+```
+
+### Task Management Tools
+
+#### write_todos
+
+Create or update a task list for tracking progress.
+
+**Parameters**:
+```typescript
+{
+  todos: [
+    {
+      task: string,
+      completed: boolean
+    }
+  ]
+}
+```
+
+**Example**:
+```typescript
+yield {
+  toolName: 'write_todos',
+  input: {
+    todos: [
+      { task: 'Find API routes', completed: true },
+      { task: 'Add rate limiting', completed: false },
+      { task: 'Update tests', completed: false }
+    ]
+  }
+}
+```
+
+<Info>
+  Todos are visible to the user and help track progress on complex multi-step tasks.
+</Info>
+
+### Research Tools
+
+#### web_search
+
+Search the web for information.
+
+**Parameters**:
+```typescript
+{
+  query: string  // Search query
+}
+```
+
+**Use cases**:
+- Looking up error messages
+- Finding documentation
+- Researching best practices
+
+#### read_docs
+
+Search specific documentation sites.
+
+**Parameters**:
+```typescript
+{
+  query: string,        // Search query
+  url?: string         // Documentation site URL
+}
+```
+
+**Use cases**:
+- Reading API documentation
+- Looking up framework features
+- Checking library usage
+
+### Skill Tools
+
+#### skill
+
+Load specialized workflows and instructions.
+
+**Parameters**:
+```typescript
+{
+  skill_name: string  // Skill to load
+}
+```
+
+**Available skills**:
+- `mintlify` - Documentation site building
+- `doc-reader` - External docs navigation
+- `doc-author` - Documentation writing
+
+## Tool Usage Patterns
+
+### Pattern 1: Read Before Edit
+
+Always read files before editing:
+
+```typescript
+// 1. Read the file
+yield {
+  toolName: 'read_files',
+  input: { paths: ['src/auth.ts'] }
+}
+
+// 2. Edit based on content
+yield {
+  toolName: 'str_replace',
+  input: {
+    path: 'src/auth.ts',
+    replacements: [{ old: '...', new: '...' }]
+  }
+}
+```
+
+### Pattern 2: Search → Read → Edit
+
+Find files, read them, then make changes:
+
+```typescript
+// 1. Search for relevant code
+const { toolResult } = yield {
+  toolName: 'code_search',
+  input: { pattern: 'authenticate' }
+}
+
+// 2. Read the discovered files
+yield {
+  toolName: 'read_files',
+  input: { paths: extractPathsFromResults(toolResult) }
+}
+
+// 3. Make changes
+yield {
+  toolName: 'str_replace',
+  input: { ... }
+}
+```
+
+### Pattern 3: Edit → Test → Review
+
+Make changes, validate them:
+
+```typescript
+// 1. Make changes
+yield { toolName: 'write_file', input: { ... } }
+
+// 2. Run tests
+yield {
+  toolName: 'run_terminal_command',
+  input: { command: 'npm test' }
+}
+
+// 3. Type check
+yield {
+  toolName: 'run_terminal_command',
+  input: { command: 'npx tsc --noEmit' }
+}
+```
+
+## Creating Custom Tools
+
+You can provide custom tools via the SDK:
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+
+const myTool = {
+  name: 'query_database',
+  description: 'Query the application database',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      query: { type: 'string', description: 'SQL query' }
+    },
+    required: ['query']
+  },
+  handler: async (params: { query: string }) => {
+    const results = await db.query(params.query)
+    return [{
+      type: 'json',
+      value: { results }
+    }]
+  }
+}
+
+const client = new CodebuffClient({ ... })
+
+await client.run({
+  agent: 'my-agent',
+  customToolDefinitions: [myTool]
+})
+```
+
+Then agents can use the tool:
+```typescript
+yield {
+  toolName: 'query_database',
+  input: { query: 'SELECT * FROM users LIMIT 10' }
+}
+```
+
+## MCP Tools
+
+Agents can use tools from Model Context Protocol servers:
+
+```typescript
+const agent = {
+  id: 'my-agent',
+  mcpServers: {
+    'filesystem': {
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem', '/path']
+    }
+  },
+  toolNames: [
+    'filesystem/read_file',
+    'filesystem/write_file',
+    'filesystem/list_directory'
+  ]
+}
+```
+
+MCP tools are prefixed with the server name: `serverName/toolName`.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agents" icon="robot" href="/concepts/agents">
+    Learn about agents that use these tools
+  </Card>
+  <Card title="Creating Agents" icon="code" href="/agents/creating-agents">
+    Build agents with custom tools
+  </Card>
+  <Card title="Multi-Agent Orchestration" icon="diagram-project" href="/concepts/multi-agent-orchestration">
+    See tools in action
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/concepts/architecture">
+    Understand the system
+  </Card>
+</CardGroup>

@@ -1,0 +1,410 @@
+---
+title: Custom Tools
+description: Extend agents with custom tool capabilities
+---
+
+Custom tools allow you to extend Codebuff agents with new capabilities beyond the built-in tools.
+
+## Creating Custom Tools
+
+Use the `getCustomToolDefinition()` function to create custom tools:
+
+```typescript
+import { z } from 'zod/v4'
+import { getCustomToolDefinition } from '@codebuff/sdk'
+
+const myTool = getCustomToolDefinition({
+  toolName: 'my_custom_tool',
+  description: 'What this tool does',
+  inputSchema: z.object({
+    param1: z.string(),
+    param2: z.number().optional(),
+  }),
+  execute: async ({ param1, param2 }) => {
+    // Tool implementation
+    return [{
+      type: 'json',
+      value: { result: 'success' },
+    }]
+  },
+})
+```
+
+## Parameters
+
+<ParamField path="toolName" type="string" required>
+  Name of the tool. Must be unique and not conflict with built-in tools.
+  
+  Use snake_case for consistency with built-in tools.
+  
+  ```typescript
+  toolName: 'fetch_api_data'
+  ```
+</ParamField>
+
+<ParamField path="description" type="string" required>
+  Description of what the tool does and when to use it.
+  
+  This is shown to the AI model, so be clear and specific.
+  
+  ```typescript
+  description: 'Fetch data from an API endpoint. Use this when you need to retrieve external data via HTTP requests.'
+  ```
+</ParamField>
+
+<ParamField path="inputSchema" type="ZodType" required>
+  Zod schema defining the tool's input parameters.
+  
+  Use Zod v4 for validation:
+  
+  ```typescript
+  inputSchema: z.object({
+    url: z.string().url(),
+    method: z.enum(['GET', 'POST', 'PUT', 'DELETE']),
+    body: z.record(z.any()).optional(),
+    headers: z.record(z.string()).optional(),
+  })
+  ```
+</ParamField>
+
+<ParamField path="execute" type="function" required>
+  Function that executes when the tool is called.
+  
+  **Parameters:** Validated input matching your `inputSchema`
+  
+  **Returns:** `Promise<ToolResultOutput[]>` or `ToolResultOutput[]`
+  
+  ```typescript
+  execute: async (input) => {
+    // Input is type-safe based on your schema
+    const result = await performOperation(input)
+    
+    return [{
+      type: 'json',
+      value: result,
+    }]
+  }
+  ```
+</ParamField>
+
+<ParamField path="exampleInputs" type="any[]">
+  Array of example inputs for the tool.
+  
+  Helps the AI understand how to use the tool.
+  
+  ```typescript
+  exampleInputs: [
+    { url: 'https://api.example.com/users', method: 'GET' },
+    { url: 'https://api.example.com/posts', method: 'POST', body: { title: 'Hello' } },
+  ]
+  ```
+</ParamField>
+
+<ParamField path="endsAgentStep" type="boolean">
+  Whether the tool ends the agent step.
+  
+  If `true`, the agent must wait for tool results before continuing.
+  
+  Default: `true`
+  
+  ```typescript
+  endsAgentStep: true  // Agent waits for results
+  ```
+</ParamField>
+
+## Tool Result Output
+
+Your `execute` function must return an array of `ToolResultOutput` objects:
+
+```typescript
+type ToolResultOutput =
+  | { type: 'text'; text: string }
+  | { type: 'json'; value: any }
+  | { type: 'image'; image: string; mediaType: string }
+```
+
+### Text Output
+
+Return plain text results:
+
+```typescript
+execute: async (input) => {
+  return [{
+    type: 'text',
+    text: 'Operation completed successfully',
+  }]
+}
+```
+
+### JSON Output
+
+Return structured data:
+
+```typescript
+execute: async (input) => {
+  return [{
+    type: 'json',
+    value: {
+      status: 'success',
+      data: { id: 123, name: 'Example' },
+    },
+  }]
+}
+```
+
+### Error Handling
+
+Return errors as JSON:
+
+```typescript
+execute: async (input) => {
+  try {
+    const result = await riskyOperation(input)
+    return [{ type: 'json', value: result }]
+  } catch (error) {
+    return [{
+      type: 'json',
+      value: {
+        errorMessage: error instanceof Error ? error.message : 'Unknown error',
+      },
+    }]
+  }
+}
+```
+
+## Complete Example: API Fetcher
+
+```typescript
+import { z } from 'zod/v4'
+import { CodebuffClient, getCustomToolDefinition } from '@codebuff/sdk'
+import type { AgentDefinition } from '@codebuff/sdk'
+
+// Define the custom tool
+const fetchApiTool = getCustomToolDefinition({
+  toolName: 'fetch_api_data',
+  
+  description: `
+Fetch data from an API endpoint.
+
+Use this tool when you need to:
+- Retrieve data from external APIs
+- Make HTTP requests to web services
+- Get information not available in the codebase
+  `,
+  
+  inputSchema: z.object({
+    url: z.string().url().describe('The API endpoint URL'),
+    method: z.enum(['GET', 'POST', 'PUT', 'DELETE']).default('GET'),
+    headers: z.record(z.string(), z.string()).optional(),
+    body: z.record(z.any()).optional(),
+  }),
+  
+  exampleInputs: [
+    { url: 'https://api.example.com/users', method: 'GET' },
+    { 
+      url: 'https://api.example.com/posts', 
+      method: 'POST',
+      body: { title: 'New Post' },
+    },
+  ],
+  
+  endsAgentStep: true,
+  
+  execute: async ({ url, method, headers, body }) => {
+    try {
+      const response = await fetch(url, {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+        body: body ? JSON.stringify(body) : undefined,
+      })
+      
+      if (!response.ok) {
+        return [{
+          type: 'json',
+          value: {
+            errorMessage: `HTTP ${response.status}: ${response.statusText}`,
+            status: response.status,
+          },
+        }]
+      }
+      
+      const data = await response.text()
+      let parsed
+      try {
+        parsed = JSON.parse(data)
+      } catch {
+        parsed = data
+      }
+      
+      return [{
+        type: 'json',
+        value: {
+          status: response.status,
+          data: parsed,
+          headers: Object.fromEntries(response.headers.entries()),
+        },
+      }]
+    } catch (error) {
+      return [{
+        type: 'json',
+        value: {
+          errorMessage: error instanceof Error ? error.message : 'Unknown error',
+        },
+      }]
+    }
+  },
+})
+
+// Use the tool with a custom agent
+async function main() {
+  const client = new CodebuffClient({
+    apiKey: process.env.CODEBUFF_API_KEY,
+  })
+  
+  const apiAgent: AgentDefinition = {
+    id: 'api-agent',
+    displayName: 'API Agent',
+    model: 'anthropic/claude-sonnet-4.6',
+    toolNames: ['fetch_api_data'],
+    instructionsPrompt: 'Use the fetch_api_data tool to retrieve information from APIs.',
+  }
+  
+  const result = await client.run({
+    agent: apiAgent,
+    prompt: 'Fetch user data from https://jsonplaceholder.typicode.com/users/1',
+    customToolDefinitions: [fetchApiTool],
+    handleEvent: (event) => {
+      if (event.type === 'tool_call') {
+        console.log(`Calling: ${event.toolName}`)
+      }
+    },
+  })
+  
+  console.log('Result:', result.output)
+}
+
+main()
+```
+
+## Example: Database Query Tool
+
+```typescript
+import { z } from 'zod/v4'
+import { getCustomToolDefinition } from '@codebuff/sdk'
+import { createClient } from '@supabase/supabase-js'
+
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_KEY!,
+)
+
+const queryDatabaseTool = getCustomToolDefinition({
+  toolName: 'query_database',
+  
+  description: 'Query the database to retrieve or update data',
+  
+  inputSchema: z.object({
+    table: z.string().describe('Table name to query'),
+    operation: z.enum(['select', 'insert', 'update', 'delete']),
+    filters: z.record(z.any()).optional(),
+    data: z.record(z.any()).optional(),
+  }),
+  
+  exampleInputs: [
+    { table: 'users', operation: 'select', filters: { id: 123 } },
+    { table: 'posts', operation: 'insert', data: { title: 'New Post' } },
+  ],
+  
+  execute: async ({ table, operation, filters, data }) => {
+    try {
+      let query = supabase.from(table)
+      
+      switch (operation) {
+        case 'select':
+          if (filters) {
+            for (const [key, value] of Object.entries(filters)) {
+              query = query.eq(key, value)
+            }
+          }
+          const { data: selectData, error: selectError } = await query.select()
+          if (selectError) throw selectError
+          return [{ type: 'json', value: selectData }]
+          
+        case 'insert':
+          if (!data) throw new Error('Data required for insert')
+          const { data: insertData, error: insertError } = await query.insert(data)
+          if (insertError) throw insertError
+          return [{ type: 'json', value: insertData }]
+          
+        case 'update':
+          if (!data) throw new Error('Data required for update')
+          if (filters) {
+            for (const [key, value] of Object.entries(filters)) {
+              query = query.eq(key, value)
+            }
+          }
+          const { data: updateData, error: updateError } = await query.update(data)
+          if (updateError) throw updateError
+          return [{ type: 'json', value: updateData }]
+          
+        case 'delete':
+          if (filters) {
+            for (const [key, value] of Object.entries(filters)) {
+              query = query.eq(key, value)
+            }
+          }
+          const { error: deleteError } = await query.delete()
+          if (deleteError) throw deleteError
+          return [{ type: 'json', value: { success: true } }]
+      }
+      
+      return [{ type: 'json', value: { errorMessage: 'Unknown operation' } }]
+    } catch (error) {
+      return [{
+        type: 'json',
+        value: {
+          errorMessage: error instanceof Error ? error.message : 'Database error',
+        },
+      }]
+    }
+  },
+})
+```
+
+## Type Definition
+
+```typescript
+export type CustomToolDefinition<
+  N extends string = string,
+  Args = any,
+  Input = any,
+> = {
+  toolName: N
+  inputSchema: z.ZodType<Args, Input>
+  description: string
+  endsAgentStep: boolean
+  exampleInputs: Input[]
+  execute: (params: Args) => Promise<ToolResultOutput[]>
+}
+
+export function getCustomToolDefinition<
+  TN extends string,
+  Args,
+  Input,
+>(params: {
+  toolName: TN
+  inputSchema: z.ZodType<Args, Input>
+  description: string
+  endsAgentStep?: boolean
+  exampleInputs?: Input[]
+  execute: (params: Args) => Promise<ToolResultOutput[]> | ToolResultOutput[]
+}): CustomToolDefinition<TN, Args, Input>
+
+type ToolResultOutput =
+  | { type: 'text'; text: string }
+  | { type: 'json'; value: any }
+  | { type: 'image'; image: string; mediaType: string }
+```

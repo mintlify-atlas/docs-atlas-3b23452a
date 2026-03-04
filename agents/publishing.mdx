@@ -1,0 +1,683 @@
+---
+title: 'Publishing Agents'
+description: 'Share your agents in the Codebuff store'
+---
+
+## Overview
+
+Publish your custom agents to the Codebuff store to:
+
+- **Share with team members**: Distribute agents across your organization
+- **Reuse across projects**: Access agents from any Codebuff project
+- **Version control**: Track changes and maintain compatibility
+- **Build on published agents**: Other agents can spawn your published agents
+
+## Using the /publish Command
+
+The `/publish` command publishes agents from your `.agents/` directory:
+
+```bash
+# Publish all agents in .agents/ directory
+/publish
+
+# Publish specific agents
+/publish my-agent another-agent
+```
+
+## Prerequisites
+
+### 1. Add Publisher ID
+
+Your agent must have a `publisher` field:
+
+```typescript
+const definition: AgentDefinition = {
+  id: 'my-agent',
+  publisher: 'mycompany',  // Required for publishing
+  displayName: 'My Agent',
+  model: 'anthropic/claude-opus-4.6',
+  // ...
+}
+```
+
+### 2. Validate Agent Definition
+
+Ensure your agent has all required fields:
+
+```typescript
+const definition: AgentDefinition = {
+  id: 'my-agent',              // Required
+  publisher: 'mycompany',      // Required for publishing
+  displayName: 'My Agent',     // Required
+  model: 'anthropic/claude-opus-4.6',  // Required
+  version: '1.0.0',            // Optional (auto-increments)
+  // ...
+}
+```
+
+## Agent Versioning
+
+### Automatic Versioning
+
+If you don't specify a version, Codebuff automatically:
+
+1. Starts at `0.0.1` for new agents
+2. Increments the patch version on each publish
+
+```typescript
+const definition: AgentDefinition = {
+  id: 'my-agent',
+  publisher: 'mycompany',
+  // version: not specified
+  // First publish: 0.0.1
+  // Second publish: 0.0.2
+  // Third publish: 0.0.3
+}
+```
+
+### Manual Versioning
+
+Specify versions manually for semantic versioning:
+
+```typescript
+const definition: AgentDefinition = {
+  id: 'my-agent',
+  publisher: 'mycompany',
+  version: '1.0.0',  // Major release
+}
+
+// Later...
+version: '1.1.0'  // Minor update (new features)
+version: '1.1.1'  // Patch update (bug fixes)
+version: '2.0.0'  // Breaking changes
+```
+
+### Versioning Best Practices
+
+Follow [semantic versioning](https://semver.org/):
+
+- **Patch (1.0.X)**: Bug fixes, no API changes
+- **Minor (1.X.0)**: New features, backward compatible
+- **Major (X.0.0)**: Breaking changes
+
+## Publishing Process
+
+### Step 1: Create Your Agent
+
+```typescript
+// .agents/my-code-formatter.ts
+import type { AgentDefinition } from './types/agent-definition'
+
+const definition: AgentDefinition = {
+  id: 'code-formatter',
+  publisher: 'mycompany',
+  displayName: 'Code Formatter',
+  model: 'anthropic/claude-haiku-4.5',
+  
+  spawnerPrompt: 'Formats code according to project style guidelines. Pass file paths to format.',
+  
+  inputSchema: {
+    prompt: {
+      type: 'string',
+      description: 'Formatting instructions',
+    },
+    params: {
+      type: 'object',
+      properties: {
+        filePaths: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Files to format',
+        },
+      },
+      required: ['filePaths'],
+    },
+  },
+  
+  toolNames: ['read_files', 'str_replace'],
+  
+  instructionsPrompt: `
+Read the specified files and format them according to the project's style guide.
+Use str_replace to make formatting changes.
+  `.trim(),
+}
+
+export default definition
+```
+
+### Step 2: Test Locally
+
+Test your agent before publishing:
+
+```typescript
+// In another agent or in chat
+spawnableAgents: ['code-formatter']  // Local reference (no publisher/version)
+
+// Spawn it
+yield {
+  toolName: 'spawn_agents',
+  input: {
+    agents: [{
+      agent_type: 'code-formatter',
+      prompt: 'Format these files',
+      params: { filePaths: ['src/index.ts'] },
+    }],
+  },
+}
+```
+
+### Step 3: Publish
+
+```bash
+/publish code-formatter
+```
+
+Output:
+```
+Publishing agent: code-formatter
+✓ Validation passed
+✓ Published mycompany/code-formatter@0.0.1
+```
+
+### Step 4: Use Published Agent
+
+After publishing, reference by full ID:
+
+```typescript
+spawnableAgents: [
+  'mycompany/code-formatter@0.0.1',  // Published reference
+]
+
+// Or use 'latest' for the newest version
+spawnableAgents: [
+  'mycompany/code-formatter@latest',
+]
+```
+
+## Reusing Published Agents
+
+### In Other Agents
+
+```typescript
+const definition: AgentDefinition = {
+  id: 'code-reviewer',
+  publisher: 'mycompany',
+  model: 'anthropic/claude-opus-4.6',
+  
+  spawnableAgents: [
+    'mycompany/code-formatter@0.0.1',  // Your published agent
+    'codebuff/file-picker@0.0.1',      // Official Codebuff agent
+  ],
+  
+  toolNames: ['spawn_agents', 'read_files'],
+  
+  instructionsPrompt: `
+Review code for issues.
+If formatting is needed, spawn the code-formatter agent.
+  `.trim(),
+}
+```
+
+### In Other Projects
+
+Published agents are available across all your projects:
+
+```bash
+# Project A: Publish
+cd ~/project-a
+/publish my-agent
+
+# Project B: Use
+cd ~/project-b
+# Add to .agents/other-agent.ts
+spawnableAgents: ['mycompany/my-agent@0.0.1']
+```
+
+### Version Pinning
+
+```typescript
+// Pin to specific version (recommended)
+spawnableAgents: [
+  'mycompany/my-agent@1.0.0',
+]
+
+// Use latest version (auto-updates)
+spawnableAgents: [
+  'mycompany/my-agent@latest',
+]
+
+// Semver ranges (if supported)
+spawnableAgents: [
+  'mycompany/my-agent@^1.0.0',  // Any 1.x.x
+]
+```
+
+## Publishing Agent Families
+
+Publish multiple related agents together:
+
+```bash
+# Publish all agents
+/publish
+```
+
+### Example: Code Quality Suite
+
+```typescript
+// .agents/linter.ts
+export default {
+  id: 'linter',
+  publisher: 'mycompany',
+  displayName: 'Code Linter',
+  // ...
+}
+
+// .agents/formatter.ts
+export default {
+  id: 'formatter',
+  publisher: 'mycompany',
+  displayName: 'Code Formatter',
+  // ...
+}
+
+// .agents/reviewer.ts
+export default {
+  id: 'reviewer',
+  publisher: 'mycompany',
+  displayName: 'Code Reviewer',
+  spawnableAgents: [
+    'mycompany/linter@0.0.1',
+    'mycompany/formatter@0.0.1',
+  ],
+  // ...
+}
+```
+
+Publish all:
+
+```bash
+/publish linter formatter reviewer
+```
+
+## Dependency Management
+
+Agents can depend on other published agents:
+
+```typescript
+// Parent agent
+const parentAgent: AgentDefinition = {
+  id: 'orchestrator',
+  publisher: 'mycompany',
+  spawnableAgents: [
+    'mycompany/file-finder@1.0.0',
+    'mycompany/code-analyzer@1.0.0',
+  ],
+}
+```
+
+When publishing, Codebuff ensures:
+
+1. All dependencies exist
+2. Versions are valid
+3. No circular dependencies
+
+## Publishing Workflow Examples
+
+### Example 1: Initial Release
+
+```typescript
+// .agents/my-agent.ts
+const definition: AgentDefinition = {
+  id: 'my-agent',
+  publisher: 'mycompany',
+  version: '1.0.0',
+  // ...
+}
+```
+
+```bash
+/publish my-agent
+# Published: mycompany/my-agent@1.0.0
+```
+
+### Example 2: Bug Fix
+
+```typescript
+// Fix bug in my-agent.ts
+const definition: AgentDefinition = {
+  id: 'my-agent',
+  publisher: 'mycompany',
+  version: '1.0.1',  // Increment patch version
+  // ...
+}
+```
+
+```bash
+/publish my-agent
+# Published: mycompany/my-agent@1.0.1
+```
+
+### Example 3: New Feature
+
+```typescript
+// Add new feature to my-agent.ts
+const definition: AgentDefinition = {
+  id: 'my-agent',
+  publisher: 'mycompany',
+  version: '1.1.0',  // Increment minor version
+  toolNames: ['read_files', 'web_search'],  // Added web_search
+  // ...
+}
+```
+
+```bash
+/publish my-agent
+# Published: mycompany/my-agent@1.1.0
+```
+
+### Example 4: Breaking Change
+
+```typescript
+// Change API in my-agent.ts
+const definition: AgentDefinition = {
+  id: 'my-agent',
+  publisher: 'mycompany',
+  version: '2.0.0',  // Increment major version
+  inputSchema: {
+    // Changed schema - breaking change
+    prompt: { type: 'string' },
+    params: {
+      type: 'object',
+      properties: {
+        mode: { type: 'string' },  // New required field
+      },
+      required: ['mode'],  // Breaking: now required
+    },
+  },
+  // ...
+}
+```
+
+```bash
+/publish my-agent
+# Published: mycompany/my-agent@2.0.0
+```
+
+## Real-World Publishing Examples
+
+### Example: File Utilities Suite
+
+```typescript
+// .agents/file-reader.ts
+const fileReader: AgentDefinition = {
+  id: 'file-reader',
+  publisher: 'acme',
+  version: '1.0.0',
+  displayName: 'ACME File Reader',
+  model: 'google/gemini-2.5-flash-lite',
+  toolNames: ['read_files'],
+  spawnerPrompt: 'Reads and summarizes file contents',
+}
+
+// .agents/file-searcher.ts
+const fileSearcher: AgentDefinition = {
+  id: 'file-searcher',
+  publisher: 'acme',
+  version: '1.0.0',
+  displayName: 'ACME File Searcher',
+  model: 'google/gemini-2.5-flash-lite',
+  toolNames: ['code_search', 'find_files'],
+  spawnerPrompt: 'Searches for files and patterns in code',
+}
+
+// .agents/file-manager.ts
+const fileManager: AgentDefinition = {
+  id: 'file-manager',
+  publisher: 'acme',
+  version: '1.0.0',
+  displayName: 'ACME File Manager',
+  model: 'anthropic/claude-sonnet-4.6',
+  spawnableAgents: [
+    'acme/file-reader@1.0.0',
+    'acme/file-searcher@1.0.0',
+  ],
+  toolNames: ['spawn_agents'],
+  spawnerPrompt: 'Manages file operations using reader and searcher agents',
+}
+```
+
+```bash
+/publish file-reader file-searcher file-manager
+```
+
+### Example: Testing Suite
+
+```typescript
+// .agents/test-runner.ts
+const testRunner: AgentDefinition = {
+  id: 'test-runner',
+  publisher: 'qateam',
+  version: '2.1.0',
+  displayName: 'Test Runner',
+  model: 'anthropic/claude-haiku-4.5',
+  toolNames: ['run_terminal_command'],
+  spawnerPrompt: 'Runs tests and reports results',
+}
+
+// .agents/test-generator.ts
+const testGenerator: AgentDefinition = {
+  id: 'test-generator',
+  publisher: 'qateam',
+  version: '2.1.0',
+  displayName: 'Test Generator',
+  model: 'anthropic/claude-opus-4.6',
+  toolNames: ['read_files', 'write_file'],
+  spawnerPrompt: 'Generates unit tests for code',
+}
+
+// .agents/qa-orchestrator.ts
+const qaOrchestrator: AgentDefinition = {
+  id: 'qa-orchestrator',
+  publisher: 'qateam',
+  version: '2.1.0',
+  displayName: 'QA Orchestrator',
+  model: 'anthropic/claude-opus-4.6',
+  spawnableAgents: [
+    'qateam/test-generator@2.1.0',
+    'qateam/test-runner@2.1.0',
+    'codebuff/code-reviewer@0.0.1',
+  ],
+  toolNames: ['spawn_agents', 'read_files'],
+  instructionsPrompt: `
+Orchestrate QA workflow:
+1. Generate tests for new code
+2. Run all tests
+3. Review test coverage
+  `.trim(),
+}
+```
+
+```bash
+/publish
+# Publishes all three agents
+```
+
+## Best Practices
+
+### 1. Use Descriptive IDs
+
+```typescript
+// Good
+id: 'code-reviewer'
+id: 'test-generator'
+id: 'api-client'
+
+// Bad
+id: 'agent1'
+id: 'helper'
+id: 'thing'
+```
+
+### 2. Write Clear spawnerPrompts
+
+```typescript
+// Good
+spawnerPrompt: 'Formats code according to project conventions. Pass filePaths in params. Returns formatted code.'
+
+// Bad
+spawnerPrompt: 'Formats code'
+```
+
+### 3. Version Consistently
+
+```typescript
+// Use semantic versioning
+version: '1.0.0'  // Initial release
+version: '1.0.1'  // Bug fix
+version: '1.1.0'  // New feature
+version: '2.0.0'  // Breaking change
+
+// Not: random versions
+version: 'v1'
+version: 'latest'
+version: 'new'
+```
+
+### 4. Test Before Publishing
+
+Always test locally:
+
+```typescript
+// Test as local agent first
+spawnableAgents: ['my-agent']  // Local test
+
+// Then publish and reference
+spawnableAgents: ['mycompany/my-agent@1.0.0']  // Published
+```
+
+### 5. Document Input Schema
+
+```typescript
+inputSchema: {
+  prompt: {
+    type: 'string',
+    description: 'Detailed description of what this prompt should contain',
+  },
+  params: {
+    type: 'object',
+    properties: {
+      filePaths: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Absolute paths to files to process',
+      },
+      mode: {
+        type: 'string',
+        description: "Processing mode: 'fast' or 'thorough'",
+      },
+    },
+    required: ['filePaths'],
+  },
+}
+```
+
+### 6. Pin Dependency Versions
+
+```typescript
+// Good: Pinned versions
+spawnableAgents: [
+  'codebuff/file-picker@0.0.1',
+  'mycompany/analyzer@1.0.0',
+]
+
+// Risky: Latest versions (can break)
+spawnableAgents: [
+  'codebuff/file-picker@latest',
+  'mycompany/analyzer@latest',
+]
+```
+
+### 7. Use Appropriate Models
+
+Choose models based on agent complexity:
+
+```typescript
+// Simple, fast tasks
+model: 'google/gemini-2.5-flash-lite'
+model: 'anthropic/claude-haiku-4.5'
+
+// Complex reasoning
+model: 'anthropic/claude-opus-4.6'
+model: 'openai/gpt-5.2'
+
+// Code generation
+model: 'openai/gpt-5.2'
+model: 'qwen/qwen3-coder-plus'
+```
+
+## Troubleshooting
+
+### "Publisher field is required"
+
+Add the `publisher` field:
+
+```typescript
+const definition: AgentDefinition = {
+  id: 'my-agent',
+  publisher: 'mycompany',  // Add this
+  // ...
+}
+```
+
+### "Agent not found"
+
+Ensure you're using the full published ID:
+
+```typescript
+// Wrong
+spawnableAgents: ['my-agent']
+
+// Correct
+spawnableAgents: ['mycompany/my-agent@1.0.0']
+```
+
+### "Dependency not found"
+
+Publish dependencies first:
+
+```bash
+# Publish dependencies first
+/publish child-agent
+
+# Then publish parent
+/publish parent-agent
+```
+
+### "Version conflict"
+
+Use specific versions:
+
+```typescript
+// Avoid
+version: '1.0.0'  // If 1.0.0 already exists
+
+// Use
+version: '1.0.1'  // New version
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Creating Agents" icon="rocket" href="/agents/creating-agents">
+    Start building your first agent
+  </Card>
+  <Card title="Agent Definition" icon="book" href="/agents/agent-definition">
+    Complete reference for all properties
+  </Card>
+  <Card title="Generators" icon="gears" href="/agents/generators">
+    Advanced programmatic control
+  </Card>
+  <Card title="Spawning Agents" icon="sitemap" href="/agents/spawning-subagents">
+    Compose published agents
+  </Card>
+</CardGroup>

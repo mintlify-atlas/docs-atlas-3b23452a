@@ -1,0 +1,463 @@
+---
+title: ToolHelpers
+description: Utility methods for working with Codebuff tools
+---
+
+## Overview
+
+`ToolHelpers` provides direct access to the internal tool implementations used by Codebuff agents. These utilities can be used in custom tools, scripts, or agent logic to perform common operations.
+
+## Usage
+
+```typescript
+import { ToolHelpers } from '@codebuff/sdk'
+
+const files = await ToolHelpers.getFiles({
+  filePaths: ['src/index.ts', 'package.json'],
+  cwd: process.cwd(),
+  fs: require('fs').promises
+})
+```
+
+## Available Methods
+
+### getFiles()
+
+Read multiple files from the filesystem with filtering and validation.
+
+```typescript
+ToolHelpers.getFiles({
+  filePaths: string[],
+  cwd: string,
+  fs: CodebuffFileSystem,
+  fileFilter?: FileFilter
+}): Promise<Record<string, string | null>>
+```
+
+<ParamField path="filePaths" type="string[]" required>
+  Array of file paths to read (relative to `cwd`)
+</ParamField>
+
+<ParamField path="cwd" type="string" required>
+  Current working directory (base path for relative paths)
+</ParamField>
+
+<ParamField path="fs" type="CodebuffFileSystem" required>
+  Filesystem implementation (e.g., `require('fs').promises`)
+</ParamField>
+
+<ParamField path="fileFilter" type="FileFilter">
+  Optional filter to classify files before reading
+  
+  ```typescript
+  type FileFilter = (filePath: string) => {
+    status: 'blocked' | 'allow-example' | 'allow'
+  }
+  ```
+</ParamField>
+
+**Returns:** `Record<string, string | null>` where keys are file paths and values are:
+- File content (string) if successful
+- `null` if file doesn't exist
+- Special markers for errors:
+  - `"[IGNORED]"` - File is gitignored or blocked
+  - `"[OUTSIDE_PROJECT]"` - Path is outside project directory
+  - `"[TOO_LARGE] [X.XXMb]"` - File exceeds 1MB limit
+  - `"[DOES_NOT_EXIST]"` - File not found
+  - `"[ERROR_READING_FILE]"` - Read error
+
+**Example:**
+
+```typescript
+const files = await ToolHelpers.getFiles({
+  filePaths: ['src/index.ts', 'README.md', 'missing.txt'],
+  cwd: '/project',
+  fs: require('fs').promises
+})
+
+// Result:
+// {
+//   'src/index.ts': 'export function main() {...}',
+//   'README.md': '# My Project\n...',
+//   'missing.txt': '[DOES_NOT_EXIST]'
+// }
+```
+
+### runTerminalCommand()
+
+Execute a shell command and capture output.
+
+```typescript
+ToolHelpers.runTerminalCommand({
+  command: string,
+  process_type: 'SYNC' | 'BACKGROUND',
+  cwd: string,
+  timeout_seconds: number,
+  env?: NodeJS.ProcessEnv
+}): Promise<CodebuffToolOutput<'run_terminal_command'>>
+```
+
+<ParamField path="command" type="string" required>
+  Shell command to execute
+</ParamField>
+
+<ParamField path="process_type" type="'SYNC' | 'BACKGROUND'" required>
+  Execution mode. Currently only `'SYNC'` is supported.
+</ParamField>
+
+<ParamField path="cwd" type="string" required>
+  Working directory for the command
+</ParamField>
+
+<ParamField path="timeout_seconds" type="number" required>
+  Maximum execution time in seconds. Use `-1` for no timeout.
+</ParamField>
+
+<ParamField path="env" type="NodeJS.ProcessEnv">
+  Environment variables for the command. Merged with system environment.
+</ParamField>
+
+**Returns:** Promise resolving to tool output:
+
+```typescript
+[{
+  type: 'json',
+  value: {
+    command: string
+    stdout: string
+    stderr?: string
+    exitCode?: number
+  }
+}]
+```
+
+**Example:**
+
+```typescript
+const result = await ToolHelpers.runTerminalCommand({
+  command: 'npm test',
+  process_type: 'SYNC',
+  cwd: '/project',
+  timeout_seconds: 60,
+  env: { NODE_ENV: 'test' }
+})
+
+const output = result[0].value
+console.log('Exit code:', output.exitCode)
+console.log('Output:', output.stdout)
+```
+
+### codeSearch()
+
+Search codebase using ripgrep with regex patterns.
+
+```typescript
+ToolHelpers.codeSearch({
+  projectPath: string,
+  pattern: string,
+  flags?: string,
+  cwd?: string,
+  maxResults?: number,
+  globalMaxResults?: number,
+  maxOutputStringLength?: number,
+  timeoutSeconds?: number,
+  logger?: Logger
+}): Promise<CodebuffToolOutput<'code_search'>>
+```
+
+<ParamField path="projectPath" type="string" required>
+  Root directory to search
+</ParamField>
+
+<ParamField path="pattern" type="string" required>
+  Regex pattern to search for
+</ParamField>
+
+<ParamField path="flags" type="string">
+  Additional ripgrep flags (e.g., `'-i'` for case-insensitive, `'-g *.ts'` to filter files)
+</ParamField>
+
+<ParamField path="cwd" type="string">
+  Subdirectory to search within (relative to projectPath)
+</ParamField>
+
+<ParamField path="maxResults" type="number">
+  Maximum matches per file (default: 15)
+</ParamField>
+
+<ParamField path="globalMaxResults" type="number">
+  Maximum total matches across all files (default: 250)
+</ParamField>
+
+<ParamField path="maxOutputStringLength" type="number">
+  Maximum output string length (default: 20,000)
+</ParamField>
+
+<ParamField path="timeoutSeconds" type="number">
+  Search timeout in seconds (default: 10)
+</ParamField>
+
+<ParamField path="logger" type="Logger">
+  Optional logger for debugging
+</ParamField>
+
+**Returns:** Promise resolving to tool output with search results formatted as `filename:line:content`
+
+**Example:**
+
+```typescript
+const result = await ToolHelpers.codeSearch({
+  projectPath: '/project',
+  pattern: 'TODO|FIXME',
+  flags: '-i', // case-insensitive
+  maxResults: 10
+})
+
+const output = result[0].value
+console.log('Search results:', output.stdout)
+// Output: 
+// src/index.ts:42:// TODO: refactor this
+// src/utils.ts:15:// FIXME: handle edge case
+```
+
+### glob()
+
+Find files matching a glob pattern.
+
+```typescript
+ToolHelpers.glob({
+  pattern: string,
+  projectPath: string,
+  cwd?: string,
+  fs: CodebuffFileSystem
+}): Promise<ToolResultOutput[]>
+```
+
+<ParamField path="pattern" type="string" required>
+  Glob pattern (e.g., `'**/*.ts'`, `'src/**/*.test.js'`)
+</ParamField>
+
+<ParamField path="projectPath" type="string" required>
+  Root directory to search
+</ParamField>
+
+<ParamField path="cwd" type="string">
+  Subdirectory to search within
+</ParamField>
+
+<ParamField path="fs" type="CodebuffFileSystem" required>
+  Filesystem implementation
+</ParamField>
+
+**Example:**
+
+```typescript
+const result = await ToolHelpers.glob({
+  pattern: '**/*.ts',
+  projectPath: '/project',
+  fs: require('fs').promises
+})
+
+const files = result[0].value
+console.log('TypeScript files:', files)
+```
+
+### listDirectory()
+
+List contents of a directory.
+
+```typescript
+ToolHelpers.listDirectory({
+  directoryPath: string,
+  projectPath: string,
+  fs: CodebuffFileSystem
+}): Promise<ToolResultOutput[]>
+```
+
+<ParamField path="directoryPath" type="string" required>
+  Directory to list (relative to projectPath)
+</ParamField>
+
+<ParamField path="projectPath" type="string" required>
+  Root project directory
+</ParamField>
+
+<ParamField path="fs" type="CodebuffFileSystem" required>
+  Filesystem implementation
+</ParamField>
+
+**Example:**
+
+```typescript
+const result = await ToolHelpers.listDirectory({
+  directoryPath: 'src',
+  projectPath: '/project',
+  fs: require('fs').promises
+})
+
+const listing = result[0].value
+console.log('Directory contents:', listing)
+```
+
+### changeFile()
+
+Create or modify a file (implements `write_file` and `str_replace` tools).
+
+```typescript
+ToolHelpers.changeFile({
+  parameters: {
+    path: string,
+    content?: string,
+    oldStr?: string,
+    newStr?: string
+  },
+  cwd: string,
+  fs: CodebuffFileSystem
+}): Promise<ToolResultOutput[]>
+```
+
+<ParamField path="parameters.path" type="string" required>
+  File path (relative to cwd)
+</ParamField>
+
+<ParamField path="parameters.content" type="string">
+  New file content (for `write_file` mode)
+</ParamField>
+
+<ParamField path="parameters.oldStr" type="string">
+  String to find (for `str_replace` mode)
+</ParamField>
+
+<ParamField path="parameters.newStr" type="string">
+  Replacement string (for `str_replace` mode)
+</ParamField>
+
+<ParamField path="cwd" type="string" required>
+  Working directory
+</ParamField>
+
+<ParamField path="fs" type="CodebuffFileSystem" required>
+  Filesystem implementation
+</ParamField>
+
+**Example:**
+
+```typescript
+// Write new file
+await ToolHelpers.changeFile({
+  parameters: {
+    path: 'src/new.ts',
+    content: 'export const foo = "bar"'
+  },
+  cwd: '/project',
+  fs: require('fs').promises
+})
+
+// Find and replace
+await ToolHelpers.changeFile({
+  parameters: {
+    path: 'src/config.ts',
+    oldStr: 'port: 3000',
+    newStr: 'port: 8080'
+  },
+  cwd: '/project',
+  fs: require('fs').promises
+})
+```
+
+### runFileChangeHooks()
+
+Run file change hooks (no-op in SDK - only relevant in CLI).
+
+```typescript
+ToolHelpers.runFileChangeHooks(): Promise<void>
+```
+
+**Note:** This is a no-op in SDK mode. File change hooks are only executed in the Codebuff CLI environment.
+
+## Type Definitions
+
+### FileFilter
+
+```typescript
+type FileFilter = (filePath: string) => FileFilterResult
+
+type FileFilterResult = {
+  status: 'blocked' | 'allow-example' | 'allow'
+}
+```
+
+### CodebuffFileSystem
+
+```typescript
+type CodebuffFileSystem = {
+  readFile: (path: string, encoding: string) => Promise<string>
+  writeFile: (path: string, data: string) => Promise<void>
+  readdir: (path: string) => Promise<string[]>
+  stat: (path: string) => Promise<{ size: number }>
+  // ... other fs methods
+}
+```
+
+### Logger
+
+```typescript
+type Logger = {
+  debug?: (obj?: any, msg?: string) => void
+  info: (obj?: any, msg?: string) => void
+  warn: (obj?: any, msg?: string) => void
+  error: (obj?: any, msg?: string) => void
+}
+```
+
+## Example: Custom Tool Using Helpers
+
+```typescript
+import { z } from 'zod/v4'
+import { getCustomToolDefinition, ToolHelpers } from '@codebuff/sdk'
+import fs from 'fs/promises'
+
+const analyzeProjectTool = getCustomToolDefinition({
+  toolName: 'analyze_project',
+  
+  inputSchema: z.object({
+    pattern: z.string(),
+    fileType: z.string().default('**/*.ts')
+  }),
+  
+  description: 'Analyze project files for specific patterns',
+  
+  execute: async ({ pattern, fileType }) => {
+    // Find files matching type
+    const globResult = await ToolHelpers.glob({
+      pattern: fileType,
+      projectPath: process.cwd(),
+      fs
+    })
+    
+    const files = globResult[0].value.files || []
+    
+    // Search for pattern
+    const searchResult = await ToolHelpers.codeSearch({
+      projectPath: process.cwd(),
+      pattern,
+      flags: `-g "${fileType}"`,
+      maxResults: 50
+    })
+    
+    return [{
+      type: 'json',
+      value: {
+        totalFiles: files.length,
+        matches: searchResult[0].value.stdout
+      }
+    }]
+  }
+})
+```
+
+## Related Types
+
+- [CustomTool](/api/custom-tool) - Create custom tools
+- [CodebuffClient](/api/codebuff-client) - Main SDK client
+- [AgentDefinition](/api/agent-definition) - Custom agent configuration

@@ -1,0 +1,378 @@
+---
+title: Custom Agents
+description: Create custom AI agents with specific capabilities and instructions
+---
+
+Custom agents allow you to create AI agents tailored to specific tasks with custom models, tools, and instructions.
+
+## AgentDefinition Type
+
+An agent is defined using the `AgentDefinition` type:
+
+```typescript
+import type { AgentDefinition } from '@codebuff/sdk'
+
+const myAgent: AgentDefinition = {
+  id: 'my-custom-agent',
+  displayName: 'My Custom Agent',
+  model: 'anthropic/claude-sonnet-4.6',
+  instructionsPrompt: 'You are a helpful coding assistant',
+  toolNames: ['read_files', 'write_file', 'code_search'],
+}
+```
+
+## Required Fields
+
+<ParamField path="id" type="string" required>
+  Unique identifier for the agent. Must contain only lowercase letters, numbers, and hyphens.
+  
+  ```typescript
+  id: 'code-reviewer'
+  ```
+</ParamField>
+
+<ParamField path="displayName" type="string" required>
+  Human-readable name for the agent.
+  
+  ```typescript
+  displayName: 'Code Reviewer'
+  ```
+</ParamField>
+
+<ParamField path="model" type="ModelName" required>
+  AI model to use. Can be any model from [OpenRouter](https://openrouter.ai/models).
+  
+  **Recommended models:**
+  - `anthropic/claude-sonnet-4.6` - Best for complex coding tasks
+  - `anthropic/claude-opus-4.6` - Most capable, slower and more expensive
+  - `openai/gpt-5.3` - Fast and capable
+  - `google/gemini-3.1-flash-lite-preview` - Very fast, cost-effective
+  
+  ```typescript
+  model: 'anthropic/claude-sonnet-4.6'
+  ```
+</ParamField>
+
+## Optional Fields
+
+### Tools and Capabilities
+
+<ParamField path="toolNames" type="string[]">
+  Tools the agent can use. Available tools:
+  
+  **File operations:**
+  - `read_files` - Read file contents
+  - `write_file` - Write or create files
+  - `str_replace` - Edit files with string replacement
+  - `apply_patch` - Apply unified diff patches
+  
+  **Code analysis:**
+  - `code_search` - Search code using ripgrep
+  - `find_files` - Find files by name pattern
+  - `list_directory` - List directory contents
+  - `glob` - Find files using glob patterns
+  
+  **Execution:**
+  - `run_terminal_command` - Run shell commands
+  
+  **Other:**
+  - `web_search` - Search the web
+  - `read_docs` - Read documentation
+  - `spawn_agents` - Spawn other agents
+  - `set_output` - Set structured output
+  - `end_turn` - End the agent's turn
+  
+  You can also include custom tools:
+  ```typescript
+  toolNames: ['read_files', 'my_custom_tool']
+  ```
+</ParamField>
+
+<ParamField path="spawnableAgents" type="string[]">
+  Other agents this agent can spawn.
+  
+  ```typescript
+  spawnableAgents: [
+    'codebuff/file-picker@0.0.1',  // Published agent
+    'my-helper-agent',              // Local agent
+  ]
+  ```
+</ParamField>
+
+### Instructions
+
+<ParamField path="instructionsPrompt" type="string">
+  Main instructions for the agent. This is inserted after each user input.
+  
+  **This is the most important field for shaping agent behavior.**
+  
+  ```typescript
+  instructionsPrompt: `
+You are a code review assistant. For each file:
+
+1. Check for common issues:
+   - Security vulnerabilities
+   - Performance problems  
+   - Code style violations
+
+2. Provide specific, actionable feedback
+
+3. Suggest improvements with code examples
+  `
+  ```
+</ParamField>
+
+<ParamField path="systemPrompt" type="string">
+  Background information for the agent. Fairly optional.
+  
+  ```typescript
+  systemPrompt: 'You are an expert TypeScript developer with 10 years of experience.'
+  ```
+</ParamField>
+
+<ParamField path="stepPrompt" type="string">
+  Prompt inserted at each agent step. Powerful but usually not necessary for smart models.
+  
+  ```typescript
+  stepPrompt: 'Think step by step before using tools.'
+  ```
+</ParamField>
+
+### Input and Output
+
+<ParamField path="inputSchema" type="object">
+  Schema for agent inputs. Most agents only need a prompt.
+  
+  ```typescript
+  inputSchema: {
+    prompt: { 
+      type: 'string', 
+      description: 'Code to review' 
+    },
+    params: {
+      type: 'object',
+      properties: {
+        severity: { type: 'string', enum: ['high', 'medium', 'low'] },
+      },
+    },
+  }
+  ```
+</ParamField>
+
+<ParamField path="outputMode" type="string">
+  How the agent outputs responses:
+  
+  - `last_message` (default) - Last message after using tools
+  - `all_messages` - All messages including tool calls
+  - `structured_output` - JSON object (use with `outputSchema`)
+  
+  ```typescript
+  outputMode: 'structured_output'
+  ```
+</ParamField>
+
+<ParamField path="outputSchema" type="object">
+  JSON schema for structured output (when `outputMode: 'structured_output'`).
+  
+  ```typescript
+  outputMode: 'structured_output',
+  outputSchema: {
+    type: 'object',
+    properties: {
+      issues: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            file: { type: 'string' },
+            line: { type: 'number' },
+            severity: { type: 'string' },
+            message: { type: 'string' },
+          },
+        },
+      },
+    },
+  }
+  ```
+</ParamField>
+
+## Complete Example
+
+```typescript
+import { z } from 'zod/v4'
+import { CodebuffClient, getCustomToolDefinition } from '@codebuff/sdk'
+import type { AgentDefinition } from '@codebuff/sdk'
+
+async function main() {
+  const client = new CodebuffClient({
+    apiKey: process.env.CODEBUFF_API_KEY,
+    cwd: process.cwd(),
+  })
+
+  // Define a sentiment analysis agent
+  const sentimentAgent: AgentDefinition = {
+    id: 'sentiment-analyzer',
+    displayName: 'Sentiment Analyzer',
+    model: 'google/gemini-3.1-flash-lite-preview',
+    toolNames: ['fetch_api_data'],  // Custom tool defined below
+    
+    instructionsPrompt: `
+Analyze the sentiment of the given text:
+
+1. Describe the different sentiments present
+2. Score along these dimensions (0-10):
+   - happiness
+   - sadness
+   - anger
+   - fear
+   - surprise
+
+3. Provide your analysis as structured output
+    `,
+    
+    outputMode: 'structured_output',
+    outputSchema: {
+      type: 'object',
+      properties: {
+        sentiments: {
+          type: 'object',
+          properties: {
+            happiness: { type: 'number' },
+            sadness: { type: 'number' },
+            anger: { type: 'number' },
+            fear: { type: 'number' },
+            surprise: { type: 'number' },
+          },
+        },
+        description: { type: 'string' },
+      },
+    },
+  }
+
+  // Define custom tool for the agent
+  const fetchApiTool = getCustomToolDefinition({
+    toolName: 'fetch_api_data',
+    description: 'Fetch data from an API endpoint',
+    inputSchema: z.object({
+      url: z.string().url(),
+      method: z.enum(['GET', 'POST']).default('GET'),
+      headers: z.record(z.string(), z.string()).optional(),
+    }),
+    exampleInputs: [
+      { url: 'https://api.example.com/data', method: 'GET' },
+    ],
+    execute: async ({ url, method, headers }) => {
+      const response = await fetch(url, { method, headers })
+      const data = await response.text()
+      return [
+        {
+          type: 'json' as const,
+          value: { message: `API Response: ${data.slice(0, 5000)}` },
+        },
+      ]
+    },
+  })
+
+  // Run the custom agent
+  const result = await client.run({
+    agent: sentimentAgent,
+    prompt: "Today I'm feeling very happy! The weather is beautiful.",
+    customToolDefinitions: [fetchApiTool],
+    handleEvent: (event) => {
+      if (event.type === 'text') {
+        console.log(event.text)
+      }
+    },
+  })
+
+  if (result.output.type === 'data') {
+    console.log('Sentiment analysis:', result.output.value)
+  } else if (result.output.type === 'error') {
+    console.error('Error:', result.output.message)
+  }
+}
+
+main()
+```
+
+## Loading Agents from Files
+
+For complex agents, define them in `.agents` directory files:
+
+```typescript
+// .agents/my-agent.ts
+import type { AgentDefinition } from '@codebuff/sdk'
+
+const definition: AgentDefinition = {
+  id: 'my-agent',
+  displayName: 'My Agent',
+  model: 'anthropic/claude-sonnet-4.6',
+  instructionsPrompt: 'Your instructions here',
+}
+
+export default definition
+```
+
+Then load them:
+
+```typescript
+import { loadLocalAgents, CodebuffClient } from '@codebuff/sdk'
+
+const agents = await loadLocalAgents({ verbose: true })
+
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY,
+})
+
+const result = await client.run({
+  agent: 'my-agent',
+  agentDefinitions: Object.values(agents),
+  prompt: 'Hello',
+})
+```
+
+## Type Definition
+
+```typescript
+export interface AgentDefinition {
+  id: string
+  displayName: string
+  model: ModelName
+  version?: string
+  publisher?: string
+  
+  toolNames?: string[]
+  spawnableAgents?: string[]
+  
+  instructionsPrompt?: string
+  systemPrompt?: string
+  stepPrompt?: string
+  
+  inputSchema?: {
+    prompt?: { type: 'string'; description?: string }
+    params?: JsonObjectSchema
+  }
+  
+  outputMode?: 'last_message' | 'all_messages' | 'structured_output'
+  outputSchema?: JsonObjectSchema
+  
+  spawnerPrompt?: string
+  includeMessageHistory?: boolean
+  inheritParentSystemPrompt?: boolean
+  
+  // Advanced features
+  reasoningOptions?: {
+    enabled?: boolean
+    exclude?: boolean
+  } & ({ max_tokens: number } | { effort: string })
+  
+  providerOptions?: {
+    order?: string[]
+    allow_fallbacks?: boolean
+    // ... see OpenRouter docs
+  }
+  
+  mcpServers?: Record<string, MCPConfig>
+  handleSteps?: GeneratorFunction
+}
+```

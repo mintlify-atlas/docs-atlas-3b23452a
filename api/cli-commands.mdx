@@ -1,0 +1,504 @@
+---
+title: CLI Commands
+description: Complete reference for all Codebuff CLI commands and options
+---
+
+## Installation & Authentication
+
+### codebuff login
+
+Authenticate with your Codebuff account.
+
+```bash
+codebuff login
+```
+
+**Aliases:** `signin`
+
+**Description:** Opens the authentication flow. If already authenticated in the app, shows a message to use `/logout` to switch accounts.
+
+---
+
+### codebuff logout
+
+Sign out from your Codebuff account.
+
+```bash
+codebuff logout
+```
+
+**Aliases:** `signout`
+
+**Description:** Logs out the current user and clears authentication credentials.
+
+---
+
+## Starting Codebuff
+
+### Basic Usage
+
+```bash
+codebuff [prompt...]
+```
+
+Start Codebuff with an optional initial prompt.
+
+**Examples:**
+```bash
+codebuff
+codebuff "fix the bug in app.js"
+codebuff add tests for the auth module
+```
+
+---
+
+### CLI Flags
+
+<ResponseField name="--version" type="flag">
+  Print the CLI version and exit.
+  
+  **Aliases:** `-v`
+  
+  ```bash
+  codebuff --version
+  ```
+</ResponseField>
+
+<ResponseField name="--help" type="flag">
+  Show help message with all available options.
+  
+  **Aliases:** `-h`
+  
+  ```bash
+  codebuff --help
+  ```
+</ResponseField>
+
+<ResponseField name="--agent" type="string">
+  Run a specific agent by ID, skipping local `.agents` overrides.
+  
+  ```bash
+  codebuff --agent my-custom-agent
+  ```
+</ResponseField>
+
+<ResponseField name="--clear-logs" type="flag">
+  Remove any existing CLI log files before starting.
+  
+  ```bash
+  codebuff --clear-logs
+  ```
+</ResponseField>
+
+<ResponseField name="--continue" type="string | boolean">
+  Continue from a previous conversation. Optionally specify a conversation ID.
+  
+  ```bash
+  codebuff --continue
+  codebuff --continue conversation-id-123
+  ```
+</ResponseField>
+
+<ResponseField name="--cwd" type="string">
+  Set the working directory (default: current directory).
+  
+  ```bash
+  codebuff --cwd /path/to/project
+  ```
+</ResponseField>
+
+<ResponseField name="--free" type="flag">
+  Start in FREE mode (uses faster, cheaper models).
+  
+  **Aliases:** `--lite` (deprecated)
+  
+  ```bash
+  codebuff --free
+  ```
+</ResponseField>
+
+<ResponseField name="--max" type="flag">
+  Start in MAX mode (uses the most powerful models).
+  
+  ```bash
+  codebuff --max
+  ```
+</ResponseField>
+
+<ResponseField name="--plan" type="flag">
+  Start in PLAN mode (creates a plan before execution).
+  
+  ```bash
+  codebuff --plan
+  ```
+</ResponseField>
+
+---
+
+## Slash Commands
+
+Slash commands are used within the Codebuff chat interface.
+
+### Chat Management
+
+#### /new
+
+Start a new conversation.
+
+```
+/new [message]
+```
+
+**Aliases:** `/n`, `/clear`, `/c`, `/reset`
+
+**Examples:**
+```
+/new
+/new refactor the database layer
+```
+
+---
+
+#### /exit
+
+Exit the Codebuff CLI.
+
+```
+/exit
+```
+
+**Aliases:** `/quit`, `/q`
+
+---
+
+#### /history
+
+Open chat history to view or continue previous conversations.
+
+```
+/history
+```
+
+**Aliases:** `/chats`
+
+---
+
+### Mode Commands
+
+#### /mode:free
+
+Switch to FREE mode.
+
+```
+/mode:free [message]
+```
+
+Optionally include a message to send immediately in FREE mode.
+
+---
+
+#### /mode:max
+
+Switch to MAX mode.
+
+```
+/mode:max [message]
+```
+
+---
+
+#### /mode:plan
+
+Switch to PLAN mode.
+
+```
+/mode:plan [message]
+```
+
+---
+
+### Terminal Commands
+
+#### /bash
+
+Execute bash commands or enter bash mode.
+
+```
+/bash [command]
+```
+
+**Aliases:** `/!`
+
+**Examples:**
+```
+/bash git status
+/bash npm install
+/bash
+```
+
+When used without arguments, enters bash mode where all input is executed as shell commands.
+
+**Direct execution:**
+```
+!git status
+!npm test
+```
+
+---
+
+### File Attachments
+
+#### /image
+
+Attach an image to your message.
+
+```
+/image [path]
+```
+
+**Aliases:** `/img`, `/attach`
+
+**Examples:**
+```
+/image screenshot.png
+/image ./docs/diagram.jpg
+/image
+```
+
+When used without a path, enters image mode for interactive attachment.
+
+---
+
+### Project Setup
+
+#### /init
+
+Initialize Codebuff in the current project.
+
+```
+/init
+```
+
+Creates `.agents` directory with example agent configurations.
+
+---
+
+### Account & Usage
+
+#### /usage
+
+View your current usage and credits.
+
+```
+/usage
+```
+
+**Aliases:** `/credits`
+
+---
+
+#### /subscribe
+
+Open subscription page to purchase credits or upgrade.
+
+```
+/subscribe
+```
+
+**Aliases:** `/strong`, `/sub`, `/buy-credits`
+
+---
+
+### Referrals
+
+#### /refer-friends
+
+Redeem a referral code or enter referral mode.
+
+```
+/refer-friends [code]
+```
+
+**Aliases:** `/referral`, `/redeem`
+
+**Examples:**
+```
+/refer-friends ABC123
+/referral ref-XYZ789
+```
+
+Referral codes can also be entered directly:
+```
+ref-ABC123
+```
+
+---
+
+### Agent Publishing
+
+#### /publish
+
+Publish custom agents to the Codebuff marketplace.
+
+```
+/publish [agent-ids...]
+```
+
+**Examples:**
+```
+/publish
+/publish my-agent
+/publish agent-1 agent-2
+```
+
+---
+
+### Code Review
+
+#### /review
+
+Request a code review.
+
+```
+/review [description]
+```
+
+**Examples:**
+```
+/review
+/review the authentication flow
+```
+
+Without arguments, opens interactive file selection.
+
+---
+
+### Appearance
+
+#### /theme:toggle
+
+Toggle between light and dark themes.
+
+```
+/theme:toggle
+```
+
+---
+
+### Feedback
+
+#### /feedback
+
+Submit feedback or report a bug.
+
+```
+/feedback [message]
+```
+
+**Aliases:** `/bug`, `/report`
+
+**Examples:**
+```
+/feedback The code completion is slow
+/bug Error when uploading images
+```
+
+---
+
+### Help
+
+#### /help
+
+Display help information.
+
+```
+/help
+```
+
+**Aliases:** `/h`, `/?`
+
+---
+
+### Skills
+
+#### /skill:*
+
+Invoke a loaded skill.
+
+```
+/skill:skill-name [request]
+```
+
+**Examples:**
+```
+/skill:mintlify create a new API page
+/skill:doc-reader check the React documentation
+```
+
+Skills are loaded from `.agents/skills/` directory.
+
+---
+
+### Advanced
+
+#### /ads:enable
+
+Enable ads to earn free credits.
+
+```
+/ads:enable
+```
+
+---
+
+#### /ads:disable
+
+Disable ads.
+
+```
+/ads:disable
+```
+
+---
+
+#### /connect:claude
+
+Connect your Claude account (when OAuth is enabled).
+
+```
+/connect:claude
+```
+
+**Aliases:** `/claude`
+
+---
+
+## Environment Variables
+
+<ResponseField name="CODEBUFF_API_KEY" type="string">
+  Your Codebuff API key for authentication.
+  
+  ```bash
+  export CODEBUFF_API_KEY="cb_xxx"
+  ```
+</ResponseField>
+
+<ResponseField name="CODEBUFF_CLI_VERSION" type="string">
+  Override the CLI version (primarily for development).
+</ResponseField>
+
+---
+
+## Exit Codes
+
+<ResponseField name="0" type="number">
+  Success - command completed without errors
+</ResponseField>
+
+<ResponseField name="1" type="number">
+  Error - command failed or invalid usage
+</ResponseField>
+
+<ResponseField name="130" type="number">
+  Interrupted - user pressed Ctrl+C
+</ResponseField>

@@ -1,0 +1,199 @@
+---
+title: CodebuffClient
+description: Client class for interacting with Codebuff agents
+---
+
+The `CodebuffClient` class is the main entry point for using the Codebuff SDK.
+
+## Constructor
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+
+const client = new CodebuffClient(options)
+```
+
+### Options
+
+<ParamField path="apiKey" type="string" required>
+  Your Codebuff API key. Get one at [codebuff.com/api-keys](https://www.codebuff.com/api-keys).
+  
+  If not provided, will read from `CODEBUFF_API_KEY` environment variable.
+</ParamField>
+
+<ParamField path="cwd" type="string">
+  Working directory for file operations. Defaults to `process.cwd()`.
+  
+  All file paths in tool calls are relative to this directory.
+</ParamField>
+
+<ParamField path="skillsDir" type="string">
+  Path to directory containing skills. Skills found here will be available to the `skill` tool.
+  
+  Each skill should be in its own subdirectory with a `SKILL.md` file.
+</ParamField>
+
+<ParamField path="projectFiles" type="Record<string, string>">
+  All files in your project as key-value pairs.
+  
+  - Keys: file paths relative to `cwd`
+  - Values: file contents as strings
+  
+  This helps Codebuff select relevant files for context.
+</ParamField>
+
+<ParamField path="knowledgeFiles" type="Record<string, string>">
+  Knowledge files to inject into every run.
+  
+  Same format as `projectFiles`. These files are added directly to agent context.
+  
+  If not provided, auto-discovers `knowledge.md`, `AGENTS.md`, or `CLAUDE.md` files.
+</ParamField>
+
+<ParamField path="agentDefinitions" type="AgentDefinition[]">
+  Array of custom agent definitions to make available for all runs.
+  
+  See [Custom Agents](/sdk/custom-agents) for details.
+</ParamField>
+
+<ParamField path="customToolDefinitions" type="CustomToolDefinition[]">
+  Array of custom tool definitions to extend agent capabilities.
+  
+  See [Custom Tools](/sdk/custom-tools) for details.
+</ParamField>
+
+<ParamField path="maxAgentSteps" type="number">
+  Maximum number of steps an agent can take before stopping.
+  
+  Use as a safety measure. A reasonable value is around 20.
+</ParamField>
+
+<ParamField path="env" type="Record<string, string>">
+  Environment variables for terminal commands executed by agents.
+  
+  Merged with `process.env`, with these values taking precedence.
+</ParamField>
+
+<ParamField path="handleEvent" type="(event: PrintModeEvent) => void">
+  Default event handler for all runs.
+  
+  Can be overridden in individual `run()` calls. See [Event Handling](/sdk/event-handling).
+</ParamField>
+
+<ParamField path="fileFilter" type="FileFilter">
+  Optional filter to control which files agents can read.
+  
+  ```typescript
+  const client = new CodebuffClient({
+    apiKey: process.env.CODEBUFF_API_KEY,
+    fileFilter: (filePath) => {
+      if (filePath === '.env') return { status: 'blocked' }
+      if (filePath.endsWith('.env.example')) return { status: 'allow-example' }
+      return { status: 'allow' }
+    },
+  })
+  ```
+  
+  - `'blocked'`: Returns `[BLOCKED]` instead of file content
+  - `'allow-example'`: Prefixes content with `[TEMPLATE]`
+  - `'allow'`: Normal read access
+</ParamField>
+
+## Methods
+
+### run()
+
+Run a Codebuff agent with the specified options.
+
+```typescript
+const result = await client.run({
+  agent: 'codebuff/base@0.0.16',
+  prompt: 'Create a calculator class',
+  handleEvent: (event) => console.log(event),
+})
+```
+
+See [Running Agents](/sdk/running-agents) for full documentation.
+
+**Returns:** `Promise<RunState>` - Contains session state and agent output
+
+### checkConnection()
+
+Check connection to the Codebuff backend.
+
+```typescript
+const isConnected = await client.checkConnection()
+if (!isConnected) {
+  console.error('Cannot connect to Codebuff')
+}
+```
+
+**Returns:** `Promise<boolean>` - `true` if connected, `false` otherwise
+
+## Example: Configured Client
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+import { promises as fs } from 'fs'
+import path from 'path'
+
+async function createConfiguredClient() {
+  // Load all project files
+  const projectFiles: Record<string, string> = {}
+  const files = await fs.readdir('./src')
+  
+  for (const file of files) {
+    const filePath = path.join('src', file)
+    projectFiles[filePath] = await fs.readFile(filePath, 'utf8')
+  }
+
+  // Create client with comprehensive config
+  const client = new CodebuffClient({
+    apiKey: process.env.CODEBUFF_API_KEY,
+    cwd: process.cwd(),
+    projectFiles,
+    maxAgentSteps: 25,
+    env: {
+      NODE_ENV: 'development',
+    },
+    handleEvent: (event) => {
+      if (event.type === 'text') {
+        console.log(event.text)
+      }
+    },
+    fileFilter: (filePath) => {
+      // Block sensitive files
+      if (filePath.includes('.env')) return { status: 'blocked' }
+      return { status: 'allow' }
+    },
+  })
+
+  return client
+}
+```
+
+## Type Definitions
+
+```typescript
+export class CodebuffClient {
+  constructor(options: CodebuffClientOptions)
+  
+  run(options: RunOptions & CodebuffClientOptions): Promise<RunState>
+  
+  checkConnection(): Promise<boolean>
+}
+
+export type CodebuffClientOptions = {
+  apiKey?: string
+  cwd?: string
+  skillsDir?: string
+  projectFiles?: Record<string, string>
+  knowledgeFiles?: Record<string, string>
+  agentDefinitions?: AgentDefinition[]
+  customToolDefinitions?: CustomToolDefinition[]
+  maxAgentSteps?: number
+  env?: Record<string, string>
+  handleEvent?: (event: PrintModeEvent) => void | Promise<void>
+  fileFilter?: FileFilter
+}
+```

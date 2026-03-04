@@ -1,0 +1,456 @@
+---
+title: CLI Configuration
+description: Configure the Codebuff CLI with environment variables, API keys, and custom settings
+---
+
+The Codebuff CLI can be configured through environment variables, configuration files, and command-line options. This guide covers all available configuration options.
+
+## Configuration Files
+
+### Settings File
+
+User preferences are stored in:
+
+```
+~/.config/codebuff/settings.json
+```
+
+This file is automatically created on first run with default values:
+
+```json
+{
+  "mode": "DEFAULT",
+  "adsEnabled": true
+}
+```
+
+**Available settings:**
+
+<ResponseField name="mode" type="string" default="DEFAULT">
+  Default agent mode: `DEFAULT`, `FREE`, `MAX`, or `PLAN`
+</ResponseField>
+
+<ResponseField name="adsEnabled" type="boolean" default="true">
+  Whether to show promotional messages in the CLI
+</ResponseField>
+
+### Authentication
+
+Authentication tokens are stored in:
+
+```
+~/.config/codebuff/credentials.json
+```
+
+<Warning>
+  This file contains sensitive credentials. Never commit it to version control.
+</Warning>
+
+### Log Files
+
+CLI logs are written to:
+
+```
+~/.config/codebuff/cli.log
+```
+
+Use `--clear-logs` flag to remove old logs on startup:
+
+```bash
+codebuff --clear-logs
+```
+
+## Environment Variables
+
+Configure the CLI and SDK behavior with environment variables. Create a `.env` file in your project root or set them in your shell profile.
+
+### AI API Keys
+
+The Codebuff platform handles model routing, but you can configure your own API keys for direct usage:
+
+<ResponseField name="ANTHROPIC_API_KEY" type="string">
+  Anthropic API key for Claude models
+  
+  ```bash
+  export ANTHROPIC_API_KEY="sk-ant-..."
+  ```
+</ResponseField>
+
+<ResponseField name="OPENAI_API_KEY" type="string">
+  OpenAI API key for GPT models
+  
+  ```bash
+  export OPENAI_API_KEY="sk-..."
+  ```
+</ResponseField>
+
+<ResponseField name="OPEN_ROUTER_API_KEY" type="string">
+  OpenRouter API key for accessing multiple models
+  
+  ```bash
+  export OPEN_ROUTER_API_KEY="sk-or-..."
+  ```
+</ResponseField>
+
+<Note>
+  When using Codebuff's hosted service, API keys are not required. They're only needed if you're self-hosting or using custom model configurations.
+</Note>
+
+### CLI Configuration
+
+<ResponseField name="CODEBUFF_CLI_VERSION" type="string">
+  Override the CLI version number (for development)
+  
+  ```bash
+  export CODEBUFF_CLI_VERSION="1.0.0-dev"
+  ```
+</ResponseField>
+
+<ResponseField name="CODEBUFF_APP_URL" type="string">
+  Override the Codebuff backend URL (for development)
+  
+  ```bash
+  export CODEBUFF_APP_URL="http://localhost:3000"
+  ```
+</ResponseField>
+
+### Analytics & Telemetry
+
+<ResponseField name="NEXT_PUBLIC_POSTHOG_API_KEY" type="string">
+  PostHog API key for analytics
+  
+  ```bash
+  export NEXT_PUBLIC_POSTHOG_API_KEY="phc_..."
+  ```
+</ResponseField>
+
+<ResponseField name="NEXT_PUBLIC_POSTHOG_HOST_URL" type="string">
+  PostHog host URL
+  
+  ```bash
+  export NEXT_PUBLIC_POSTHOG_HOST_URL="https://us.i.posthog.com"
+  ```
+</ResponseField>
+
+## API Key Setup
+
+To use your own API keys with Codebuff:
+
+<Steps>
+  <Step title="Get API keys">
+    Sign up for API access from your chosen provider:
+    
+    - **Anthropic:** https://console.anthropic.com/
+    - **OpenAI:** https://platform.openai.com/api-keys
+    - **OpenRouter:** https://openrouter.ai/keys
+  </Step>
+  
+  <Step title="Create .env file">
+    In your project directory:
+    
+    ```bash
+    touch .env
+    ```
+    
+    Add your keys:
+    
+    ```bash
+    ANTHROPIC_API_KEY="sk-ant-..."
+    OPENAI_API_KEY="sk-..."
+    ```
+  </Step>
+  
+  <Step title="Add to .gitignore">
+    Prevent committing secrets:
+    
+    ```bash
+    echo ".env" >> .gitignore
+    ```
+  </Step>
+  
+  <Step title="Restart the CLI">
+    Environment variables are loaded on startup:
+    
+    ```bash
+    codebuff
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  Always add `.env` to your `.gitignore` to prevent accidentally committing API keys to version control.
+</Warning>
+
+## Model Selection
+
+Codebuff automatically selects appropriate models based on the agent mode:
+
+### Agent Mode Models
+
+<CodeGroup>
+```bash DEFAULT
+# Balanced performance
+codebuff --mode default
+# or
+/mode:default
+```
+
+```bash FREE
+# Fast, lightweight models
+codebuff --free
+# or
+/mode:free
+```
+
+```bash MAX
+# Most powerful models
+codebuff --max
+# or
+/mode:max
+```
+
+```bash PLAN
+# Planning-focused models
+codebuff --plan
+# or
+/mode:plan
+```
+</CodeGroup>
+
+### Persistent Mode Preference
+
+Save your preferred mode:
+
+```bash
+/mode:max
+```
+
+The CLI remembers your choice for future sessions. Override on startup:
+
+```bash
+codebuff --free  # Start in FREE mode regardless of saved preference
+```
+
+## Custom Agent Loading
+
+Codebuff loads custom agents from multiple locations, with later directories taking precedence:
+
+### Agent Directory Priority
+
+1. **Global agents** (`~/.agents/`)
+   - Available in all projects
+   - Lowest priority
+
+2. **Monorepo agents** (`../.agents/`)
+   - Shared across monorepo packages
+   - Medium priority
+
+3. **Project agents** (`{project}/.agents/`)
+   - Project-specific agents
+   - Highest priority (overrides global and monorepo)
+
+### Creating Agent Directories
+
+Initialize agent directory structure:
+
+```bash
+/init
+```
+
+This creates:
+
+```
+project/
+├── knowledge.md
+└── .agents/
+    ├── types/
+    │   ├── agent-definition.ts
+    │   ├── tools.ts
+    │   └── util-types.ts
+    └── my-agent.ts  # Your custom agents here
+```
+
+### Agent File Structure
+
+Custom agent files should export an `AgentDefinition`:
+
+```typescript
+// .agents/my-agent.ts
+import type { AgentDefinition } from './types/agent-definition'
+
+export const agent: AgentDefinition = {
+  id: 'my-agent',
+  displayName: 'My Custom Agent',
+  description: 'Does something specific',
+  publisher: 'username',
+  instructions: `You are a specialized agent that...`,
+  // ... more configuration
+}
+
+export default agent
+```
+
+### Loading Agents
+
+Agents are automatically loaded from all three locations on CLI startup:
+
+```bash
+codebuff
+```
+
+**Skip local agent overrides:**
+
+Load only built-in agents:
+
+```bash
+codebuff --agent base2
+```
+
+This is useful for testing or when local agents cause issues.
+
+### MCP Server Configuration
+
+Configure MCP (Model Context Protocol) servers in `.agents/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "my-server": {
+      "command": "node",
+      "args": ["./dist/index.js"],
+      "env": {
+        "API_KEY": "..."
+      }
+    }
+  }
+}
+```
+
+MCP servers provide additional tools and context to agents.
+
+## Advanced Configuration
+
+### Working Directory
+
+Override the working directory:
+
+```bash
+codebuff --cwd /path/to/project
+```
+
+This is useful for:
+- Running Codebuff from a different directory
+- Scripting and automation
+- Testing agents in specific project contexts
+
+### Conversation Continuation
+
+Continue from a previous conversation:
+
+```bash
+# Continue last conversation
+codebuff --continue
+
+# Continue specific conversation by ID
+codebuff --continue abc123def456
+```
+
+### Agent Override
+
+Run a specific agent, bypassing local overrides:
+
+```bash
+codebuff --agent base2
+codebuff --agent my-publisher/my-agent
+```
+
+### Initial Prompt
+
+Provide an initial prompt on the command line:
+
+```bash
+codebuff "add unit tests for the auth module"
+```
+
+The CLI will start and immediately send this prompt to the agent.
+
+## Configuration Tips
+
+<Tip>
+  **Use project-specific `.env` files** for API keys and configuration that shouldn't be shared across projects.
+</Tip>
+
+<Tip>
+  **Global agent directory** (`~/.agents/`) is perfect for personal utility agents you use across all projects.
+</Tip>
+
+<Tip>
+  **Monorepo shared agents** (`../.agents/`) let you share custom agents across packages while keeping them versioned.
+</Tip>
+
+<Tip>
+  **Override agent modes per prompt** using flags like `--free` or `--max` without changing your saved preference.
+</Tip>
+
+## Troubleshooting
+
+### Agent Not Loading
+
+If your custom agent isn't loading:
+
+1. Check the file exports `default` or named export `agent`
+2. Verify the `id` field is unique
+3. Ensure TypeScript types are correct
+4. Check CLI logs: `~/.config/codebuff/cli.log`
+
+```bash
+# Clear logs and restart to see fresh output
+codebuff --clear-logs
+```
+
+### API Key Issues
+
+If API keys aren't working:
+
+1. Verify the keys are in `.env` with correct names
+2. Check for typos or extra whitespace
+3. Ensure `.env` is in the project root or parent
+4. Restart the CLI after changing `.env`
+
+### Configuration Not Persisting
+
+If settings don't persist:
+
+1. Check write permissions on `~/.config/codebuff/`
+2. Verify the JSON format in `settings.json`
+3. Look for errors in CLI logs
+
+### Theme Detection Issues
+
+If the CLI theme doesn't match your terminal:
+
+```bash
+/theme:toggle
+```
+
+The CLI attempts automatic detection but may need manual adjustment.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Workflows" icon="diagram-project" href="/cli/workflows">
+    Learn common CLI workflows and best practices
+  </Card>
+  
+  <Card title="Creating Agents" icon="wand-magic-sparkles" href="/agents/creating-agents">
+    Build custom agents for your workflows
+  </Card>
+  
+  <Card title="Commands Reference" icon="terminal" href="/cli/commands">
+    Complete list of all CLI commands
+  </Card>
+  
+  <Card title="SDK Guide" icon="code" href="/sdk/overview">
+    Use Codebuff programmatically with the SDK
+  </Card>
+</CardGroup>

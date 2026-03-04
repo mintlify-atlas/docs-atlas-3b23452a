@@ -1,0 +1,276 @@
+---
+title: "Custom Agent"
+description: "Learn how to create and use custom Codebuff agents with specialized behavior"
+---
+
+## Creating a Custom Agent
+
+Custom agents allow you to define specialized behaviors, tools, and workflows. Here's a complete example of creating a sentiment analysis agent.
+
+## Complete Example: Sentiment Analyzer
+
+```typescript
+import { z } from 'zod/v4'
+import { CodebuffClient, getCustomToolDefinition } from '@codebuff/sdk'
+import type { AgentDefinition } from '@codebuff/sdk'
+
+async function main() {
+  const client = new CodebuffClient({
+    apiKey: process.env.CODEBUFF_API_KEY,
+    cwd: process.cwd(),
+  })
+
+  // Define your custom agent
+  const sentimentAgent: AgentDefinition = {
+    id: 'sentiment-analyzer',
+    model: 'google/gemini-3.1-flash-lite-preview',
+    displayName: 'Sentiment Analyzer',
+    toolNames: ['fetch_api_data'],
+    instructionsPrompt: `
+1. Describe the different sentiments in the given prompt.
+2. Score the prompt along the following 5 dimensions:
+   happiness, sadness, anger, fear, and surprise.`,
+  }
+
+  // Define a custom tool for the agent
+  const fetchTool = getCustomToolDefinition({
+    toolName: 'fetch_api_data',
+    description: 'Fetch data from an API endpoint',
+    inputSchema: z.object({
+      url: z.url(),
+      method: z.enum(['GET', 'POST']).default('GET'),
+      headers: z.record(z.string(), z.string()).optional(),
+    }),
+    exampleInputs: [{ 
+      url: 'https://api.example.com/data', 
+      method: 'GET' 
+    }],
+    execute: async ({ url, method, headers }) => {
+      const response = await fetch(url, { method, headers })
+      const data = await response.text()
+      return [
+        {
+          type: 'json' as const,
+          value: {
+            message: `API Response: ${data.slice(0, 5000)}...`,
+          },
+        },
+      ]
+    },
+  })
+
+  // Run the custom agent
+  const { output } = await client.run({
+    agent: 'sentiment-analyzer',
+    prompt: "Today I'm feeling very happy!",
+    agentDefinitions: [sentimentAgent],
+    customToolDefinitions: [fetchTool],
+    handleEvent: (event) => {
+      console.log('Event:', JSON.stringify(event))
+    },
+  })
+
+  if (output.type === 'error') {
+    console.error(`The run failed:\n${output.message}`)
+  } else {
+    console.log('Sentiment analysis:', output)
+  }
+}
+
+main()
+```
+
+## Agent Definition Structure
+
+Here's a breakdown of the key properties in an `AgentDefinition`:
+
+```typescript
+const myAgent: AgentDefinition = {
+  // Required: Unique identifier (lowercase, numbers, hyphens only)
+  id: 'my-agent',
+  
+  // Required: Human-readable name
+  displayName: 'My Custom Agent',
+  
+  // Required: AI model from OpenRouter
+  model: 'anthropic/claude-4-sonnet-20250522',
+  
+  // Optional: Tools this agent can use
+  toolNames: ['read_files', 'run_terminal_command', 'end_turn'],
+  
+  // Optional: Other agents this agent can spawn
+  spawnableAgents: ['codebuff/file-picker@0.0.1'],
+  
+  // Optional: Instructions for the agent's behavior
+  instructionsPrompt: 'Follow these steps to complete the task...',
+  
+  // Optional: System prompt for the agent
+  systemPrompt: 'You are an expert software developer.',
+  
+  // Optional: When should parent agents spawn this agent?
+  spawnerPrompt: 'Spawn when you need to analyze code quality',
+}
+```
+
+## Simple Custom Agent Example
+
+Here's a minimal example - a greeter agent:
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+import type { AgentDefinition } from '@codebuff/sdk'
+
+const greeterAgent: AgentDefinition = {
+  id: 'greeter',
+  displayName: 'Greeter',
+  model: 'openai/gpt-5.1',
+  instructionsPrompt: 'Say hello to the user in a friendly way!',
+}
+
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY,
+})
+
+await client.run({
+  agent: 'greeter',
+  agentDefinitions: [greeterAgent],
+  prompt: 'My name is Bob.',
+  handleEvent: (event) => {
+    console.log('Progress:', event)
+  },
+})
+```
+
+## File-Based Agent Definitions
+
+You can also create agent definitions as files in your `.agents/` directory after running `/init` in the CLI:
+
+```typescript
+// .agents/code-reviewer.ts
+import type { AgentDefinition } from './types/agent-definition'
+
+const definition: AgentDefinition = {
+  id: 'code-reviewer',
+  displayName: 'Code Reviewer',
+  model: 'anthropic/claude-4-sonnet-20250522',
+  toolNames: ['read_files', 'run_terminal_command'],
+  
+  spawnerPrompt: 'Spawn when you need to review code changes',
+  
+  instructionsPrompt: `
+Execute the following steps:
+1. Run git diff to see changes
+2. Read the files that have changed
+3. Review the changes and suggest improvements
+  `,
+}
+
+export default definition
+```
+
+Then use it in the CLI by running:
+
+```
+codebuff --agent code-reviewer
+```
+
+## Testing Your Custom Agent
+
+Create a test script to validate your agent:
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+import myCustomAgent from './.agents/my-agent'
+
+async function testAgent() {
+  const client = new CodebuffClient({
+    apiKey: process.env.CODEBUFF_API_KEY,
+  })
+
+  console.log('Testing custom agent...')
+  
+  const result = await client.run({
+    agent: myCustomAgent.id,
+    agentDefinitions: [myCustomAgent],
+    prompt: 'Test prompt for the agent',
+    handleEvent: (event) => {
+      if (event.type === 'text_response') {
+        console.log('Agent response:', event.text)
+      }
+    },
+  })
+
+  if (result.output.type === 'success') {
+    console.log('✅ Agent test passed!')
+  } else {
+    console.error('❌ Agent test failed:', result.output.message)
+  }
+}
+
+testAgent()
+```
+
+## Advanced: Agent with Input Schema
+
+Define structured inputs for your agent:
+
+```typescript
+const myAgent: AgentDefinition = {
+  id: 'structured-agent',
+  displayName: 'Structured Agent',
+  model: 'anthropic/claude-4-sonnet-20250522',
+  toolNames: ['read_files'],
+  
+  inputSchema: {
+    prompt: {
+      type: 'string',
+      description: 'The task to perform',
+    },
+    params: {
+      type: 'object',
+      properties: {
+        severity: {
+          type: 'string',
+          enum: ['low', 'medium', 'high'],
+          description: 'Issue severity level',
+        },
+        files: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Files to analyze',
+        },
+      },
+      required: ['severity'],
+    },
+  },
+  
+  instructionsPrompt: 'Analyze the specified files for issues.',
+}
+
+// Use with params
+await client.run({
+  agent: 'structured-agent',
+  agentDefinitions: [myAgent],
+  prompt: 'Find security issues',
+  params: {
+    severity: 'high',
+    files: ['src/auth.ts', 'src/api.ts'],
+  },
+})
+```
+
+## Available Models
+
+You can use any model from [OpenRouter](https://openrouter.ai/models):
+
+- `anthropic/claude-4-sonnet-20250522` - Claude 4 Sonnet (recommended)
+- `openai/gpt-5.1` - GPT-5.1
+- `google/gemini-3.1-flash-lite-preview` - Gemini Flash (fast & cheap)
+- `qwen/qwen-2.5-coder-32b-instruct` - Qwen Coder
+- `deepseek/deepseek-coder` - DeepSeek Coder
+
+## Next Steps
+
+- [Create custom tools](/examples/custom-tools) to extend your agent's capabilities
+- [Build multi-step workflows](/examples/multi-step-workflow) with handleSteps
+- [Publish your agent](https://codebuff.com/store) to share with the community

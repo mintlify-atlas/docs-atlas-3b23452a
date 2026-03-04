@@ -1,0 +1,400 @@
+---
+title: Installation
+description: Install Codebuff CLI or SDK with prerequisites, configuration, and troubleshooting
+---
+
+Codebuff offers two ways to get started: the CLI for interactive coding sessions, and the SDK for integrating Codebuff into your applications.
+
+## CLI installation
+
+The Codebuff CLI provides an interactive terminal interface for AI-powered coding.
+
+### Install globally
+
+Install Codebuff globally using npm:
+
+```bash
+npm install -g codebuff
+```
+
+### Run without installing
+
+Use npx to run Codebuff without installation:
+
+```bash
+npx codebuff
+```
+
+<Note>
+  Using npx will download and run the latest version each time. For regular use, global installation is recommended.
+</Note>
+
+### Verify installation
+
+Check that Codebuff is installed correctly:
+
+```bash
+codebuff --version
+```
+
+## SDK installation
+
+The Codebuff SDK allows you to integrate AI coding capabilities into your applications.
+
+### Install the package
+
+Install the SDK as a project dependency:
+
+<CodeGroup>
+```bash npm
+npm install @codebuff/sdk
+```
+
+```bash yarn
+yarn add @codebuff/sdk
+```
+
+```bash pnpm
+pnpm add @codebuff/sdk
+```
+
+```bash bun
+bun add @codebuff/sdk
+```
+</CodeGroup>
+
+### Verify installation
+
+Create a test file to verify the SDK is working:
+
+```typescript test.ts
+import { CodebuffClient } from '@codebuff/sdk'
+
+const client = new CodebuffClient({
+  apiKey: 'test-key',
+  cwd: process.cwd(),
+})
+
+console.log('SDK loaded successfully!')
+```
+
+Run it:
+
+```bash
+node test.ts
+```
+
+## Prerequisites
+
+### System requirements
+
+<Accordion title="Node.js version">
+  Codebuff requires **Node.js 18.0.0 or higher**.
+
+  Check your version:
+
+  ```bash
+  node --version
+  ```
+
+  If you need to upgrade, download from [nodejs.org](https://nodejs.org) or use a version manager like [nvm](https://github.com/nvm-sh/nvm):
+
+  ```bash
+  nvm install 18
+  nvm use 18
+  ```
+</Accordion>
+
+<Accordion title="Package manager">
+  Codebuff works with any Node.js package manager:
+
+  - **npm** (bundled with Node.js)
+  - **yarn** (install with `npm install -g yarn`)
+  - **pnpm** (install with `npm install -g pnpm`)
+  - **bun** (install from [bun.sh](https://bun.sh))
+</Accordion>
+
+<Accordion title="Git (recommended)">
+  While not required, Codebuff works best with Git repositories. It can:
+
+  - Analyze commit history for context
+  - Create commits with meaningful messages
+  - Track changes made during sessions
+
+  Install Git from [git-scm.com](https://git-scm.com).
+</Accordion>
+
+### Codebuff account
+
+You need a Codebuff account to use the service:
+
+1. **Sign up**: Visit [codebuff.com](https://www.codebuff.com) to create an account
+2. **Get API key**: Navigate to [codebuff.com/api-keys](https://www.codebuff.com/api-keys)
+3. **Copy your key**: You'll need this for authentication
+
+<Warning>
+  Keep your API key secure. Never commit it to version control or share it publicly.
+</Warning>
+
+## Environment setup
+
+### CLI authentication
+
+The first time you run the CLI, you'll be prompted to authenticate:
+
+```bash
+codebuff
+```
+
+Follow the prompts to:
+1. Open your browser
+2. Log in to your Codebuff account
+3. Authorize the CLI
+
+Your credentials will be saved locally.
+
+### SDK authentication
+
+For the SDK, provide your API key when creating the client:
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY,
+  cwd: process.cwd(),
+})
+```
+
+#### Store API key securely
+
+Never hardcode your API key. Use environment variables:
+
+<CodeGroup>
+```bash .env
+CODEBUFF_API_KEY=your-api-key-here
+```
+
+```typescript dotenv
+import 'dotenv/config'
+import { CodebuffClient } from '@codebuff/sdk'
+
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY,
+  cwd: process.cwd(),
+})
+```
+
+```bash CLI export
+export CODEBUFF_API_KEY=your-api-key-here
+node your-script.js
+```
+</CodeGroup>
+
+<Warning>
+  Add `.env` to your `.gitignore` file to prevent committing secrets.
+</Warning>
+
+## Configuration
+
+### Project setup
+
+Initialize Codebuff in your project:
+
+```bash
+cd your-project
+codebuff
+```
+
+Inside the CLI, run:
+
+```
+/init
+```
+
+This creates:
+
+```
+knowledge.md               # Project context for Codebuff
+.agents/
+└── types/                 # TypeScript type definitions
+    ├── agent-definition.ts
+    ├── tools.ts
+    └── util-types.ts
+```
+
+### Knowledge files
+
+Knowledge files provide context about your project:
+
+- **`knowledge.md`**: Project-specific guidelines and context
+- **`~/.knowledge.md`**: User-wide preferences (home directory)
+- **`AGENTS.md`**: Alternative name for knowledge files
+- **`CLAUDE.md`**: Alternative name (Claude compatibility)
+
+Example `knowledge.md`:
+
+```markdown
+# Project Guidelines
+
+## Architecture
+- This is a Node.js API using Express
+- Database: PostgreSQL with Prisma ORM
+- Authentication: JWT tokens
+
+## Coding Standards
+- Use TypeScript strict mode
+- Write tests for all new features
+- Follow functional programming patterns
+
+## Important Files
+- `src/server.ts`: Main entry point
+- `src/routes/`: API route handlers
+- `src/db/`: Database models and migrations
+```
+
+## Verification
+
+### Test CLI installation
+
+```bash
+codebuff --version
+```
+
+Expected output: Version number (e.g., `1.0.0`)
+
+### Test SDK installation
+
+Create a simple test:
+
+```typescript test-sdk.ts
+import { CodebuffClient } from '@codebuff/sdk'
+
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY!,
+  cwd: process.cwd(),
+})
+
+console.log('Testing Codebuff SDK...')
+
+client.run({
+  agent: 'base',
+  prompt: 'List the files in the current directory',
+  handleEvent: (event) => {
+    if (event.type === 'text') {
+      console.log(event.content)
+    }
+  },
+}).then(() => {
+  console.log('SDK test completed!')
+})
+```
+
+Run it:
+
+```bash
+node test-sdk.ts
+```
+
+## Common issues
+
+<Accordion title="Command not found: codebuff">
+  If you see this error after installation:
+
+  **Solution 1**: Ensure npm global bin is in your PATH
+
+  ```bash
+  npm config get prefix
+  ```
+
+  Add this to your PATH in `.bashrc`, `.zshrc`, or equivalent:
+
+  ```bash
+  export PATH="$(npm config get prefix)/bin:$PATH"
+  ```
+
+  **Solution 2**: Use npx instead
+
+  ```bash
+  npx codebuff
+  ```
+</Accordion>
+
+<Accordion title="Permission denied errors">
+  If you get EACCES errors during installation:
+
+  **Solution**: Use a Node version manager or fix npm permissions
+
+  ```bash
+  # Using nvm (recommended)
+  curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash
+  nvm install 18
+  npm install -g codebuff
+  ```
+
+  Or follow [npm's guide to fixing permissions](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally).
+</Accordion>
+
+<Accordion title="API key not working">
+  If authentication fails:
+
+  1. **Verify the key**: Check you copied the full key from [codebuff.com/api-keys](https://www.codebuff.com/api-keys)
+  2. **Check environment**: Ensure `CODEBUFF_API_KEY` is set
+     ```bash
+     echo $CODEBUFF_API_KEY
+     ```
+  3. **Regenerate**: Create a new API key if needed
+</Accordion>
+
+<Accordion title="Module not found errors (SDK)">
+  If you get module resolution errors:
+
+  **Solution**: Ensure TypeScript is configured correctly
+
+  ```json tsconfig.json
+  {
+    "compilerOptions": {
+      "module": "ESNext",
+      "moduleResolution": "node",
+      "esModuleInterop": true
+    }
+  }
+  ```
+
+  Or use `"module": "CommonJS"` for CommonJS projects.
+</Accordion>
+
+<Accordion title="Slow installation">
+  If npm install is taking too long:
+
+  **Solution**: Use a faster package manager
+
+  ```bash
+  npm install -g pnpm
+  pnpm add -g codebuff
+  ```
+
+  Or:
+
+  ```bash
+  npm install -g yarn
+  yarn global add codebuff
+  ```
+</Accordion>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Complete your first coding task with Codebuff
+  </Card>
+  <Card title="CLI Guide" icon="terminal" href="/cli/overview">
+    Learn CLI commands and workflows
+  </Card>
+  <Card title="SDK Guide" icon="code" href="/sdk/overview">
+    Integrate Codebuff into your application
+  </Card>
+  <Card title="Configuration" icon="gear" href="/cli/configuration">
+    Advanced configuration options
+  </Card>
+</CardGroup>

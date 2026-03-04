@@ -1,0 +1,306 @@
+---
+title: Running Agents
+description: Execute AI agents with client.run()
+---
+
+The `client.run()` method executes a Codebuff agent and returns the result.
+
+## Basic Usage
+
+```typescript
+const result = await client.run({
+  agent: 'codebuff/base@0.0.16',
+  prompt: 'Create a calculator class',
+})
+
+if (result.output.type === 'error') {
+  console.error('Error:', result.output.message)
+} else {
+  console.log('Success!')
+}
+```
+
+## RunOptions
+
+### agent
+
+<ParamField path="agent" type="string | AgentDefinition" required>
+  The agent to run. Can be:
+  
+  **Published agent** (recommended):
+  ```typescript
+  agent: 'codebuff/base@0.0.16'
+  ```
+  
+  **Local agent from .agents directory:**
+  ```typescript
+  agent: 'my-custom-agent'
+  agentDefinitions: [myAgentDef]  // Must provide definition
+  ```
+  
+  **Inline agent definition:**
+  ```typescript
+  agent: {
+    id: 'my-agent',
+    displayName: 'My Agent',
+    model: 'anthropic/claude-sonnet-4.6',
+    instructionsPrompt: 'You are a helpful coding assistant',
+  }
+  ```
+</ParamField>
+
+### prompt
+
+<ParamField path="prompt" type="string" required>
+  The user prompt describing what you want the agent to do.
+  
+  ```typescript
+  prompt: 'Add error handling to the API endpoints'
+  ```
+</ParamField>
+
+### previousRun
+
+<ParamField path="previousRun" type="RunState">
+  State from a previous `run()` call to continue the conversation.
+  
+  ```typescript
+  const run1 = await client.run({
+    agent: 'codebuff/base@0.0.16',
+    prompt: 'Create a calculator',
+  })
+  
+  // Continue the session
+  const run2 = await client.run({
+    agent: 'codebuff/base@0.0.16',
+    prompt: 'Add tests for it',
+    previousRun: run1,  // Maintains context
+  })
+  ```
+</ParamField>
+
+### params
+
+<ParamField path="params" type="Record<string, any>">
+  Additional structured parameters for the agent.
+  
+  Most agents only need `prompt`, but some custom agents accept additional parameters.
+  
+  ```typescript
+  params: {
+    outputFormat: 'json',
+    verbose: true,
+  }
+  ```
+</ParamField>
+
+### handleEvent
+
+<ParamField path="handleEvent" type="(event: PrintModeEvent) => void">
+  Callback that receives every event during execution.
+  
+  See [Event Handling](/sdk/event-handling) for details.
+  
+  ```typescript
+  handleEvent: (event) => {
+    if (event.type === 'tool_call') {
+      console.log(`Calling ${event.toolName}`)
+    } else if (event.type === 'text') {
+      console.log(event.text)
+    }
+  }
+  ```
+</ParamField>
+
+### agentDefinitions
+
+<ParamField path="agentDefinitions" type="AgentDefinition[]">
+  Array of custom agent definitions available for this run.
+  
+  Required when using custom agents. See [Custom Agents](/sdk/custom-agents).
+</ParamField>
+
+### customToolDefinitions
+
+<ParamField path="customToolDefinitions" type="CustomToolDefinition[]">
+  Array of custom tool definitions for this run.
+  
+  See [Custom Tools](/sdk/custom-tools) for details.
+</ParamField>
+
+### Other Options
+
+All `CodebuffClientOptions` can also be passed to override client defaults:
+
+```typescript
+await client.run({
+  agent: 'codebuff/base@0.0.16',
+  prompt: 'Refactor this code',
+  
+  // Override client options for this run
+  maxAgentSteps: 50,
+  cwd: './packages/core',
+  env: { DEBUG: 'true' },
+})
+```
+
+## Return Value: RunState
+
+The `run()` method returns a `Promise<RunState>`:
+
+```typescript
+type RunState = {
+  sessionState?: SessionState  // Internal state for continuing runs
+  output: AgentOutput          // Final output or error
+}
+
+type AgentOutput =
+  | { type: 'text'; text: string }
+  | { type: 'error'; message: string; statusCode?: number }
+  | { type: 'data'; value: any }  // For structured output
+```
+
+### Checking Results
+
+```typescript
+const result = await client.run({ /* ... */ })
+
+if (result.output.type === 'error') {
+  console.error('Agent failed:', result.output.message)
+  
+  // Check if it's a retryable error
+  if (result.output.statusCode === 503) {
+    console.log('Service temporarily unavailable, retry later')
+  }
+} else if (result.output.type === 'text') {
+  console.log('Agent response:', result.output.text)
+} else if (result.output.type === 'data') {
+  console.log('Structured output:', result.output.value)
+}
+```
+
+## Multi-Turn Conversations
+
+Pass `previousRun` to maintain context across multiple interactions:
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+
+async function multiTurnExample() {
+  const client = new CodebuffClient({
+    apiKey: process.env.CODEBUFF_API_KEY,
+    cwd: process.cwd(),
+  })
+
+  // First turn
+  const turn1 = await client.run({
+    agent: 'codebuff/base@0.0.16',
+    prompt: 'Create a simple calculator class',
+  })
+
+  // Second turn - agent remembers the calculator it created
+  const turn2 = await client.run({
+    agent: 'codebuff/base@0.0.16',
+    prompt: 'Add unit tests for it',
+    previousRun: turn1,  // Maintains context
+  })
+
+  // Third turn - agent remembers both calculator and tests
+  const turn3 = await client.run({
+    agent: 'codebuff/base@0.0.16',
+    prompt: 'Add error handling for division by zero',
+    previousRun: turn2,
+  })
+
+  console.log('Final output:', turn3.output)
+}
+```
+
+## Error Handling
+
+```typescript
+import { CodebuffClient, isRetryableStatusCode } from '@codebuff/sdk'
+
+async function runWithRetry() {
+  const client = new CodebuffClient({
+    apiKey: process.env.CODEBUFF_API_KEY,
+  })
+
+  let attempts = 0
+  const maxAttempts = 3
+
+  while (attempts < maxAttempts) {
+    try {
+      const result = await client.run({
+        agent: 'codebuff/base@0.0.16',
+        prompt: 'Generate a README',
+      })
+
+      if (result.output.type === 'error') {
+        const shouldRetry = result.output.statusCode 
+          ? isRetryableStatusCode(result.output.statusCode)
+          : false
+
+        if (shouldRetry && attempts < maxAttempts - 1) {
+          attempts++
+          console.log(`Retrying... (${attempts}/${maxAttempts})`)
+          await new Promise(resolve => setTimeout(resolve, 1000 * attempts))
+          continue
+        }
+
+        throw new Error(result.output.message)
+      }
+
+      console.log('Success!')
+      return result
+    } catch (error) {
+      if (attempts === maxAttempts - 1) throw error
+      attempts++
+    }
+  }
+}
+```
+
+## Cancellation
+
+Use `AbortSignal` to cancel a run:
+
+```typescript
+const controller = new AbortController()
+
+// Cancel after 30 seconds
+setTimeout(() => controller.abort(), 30000)
+
+const result = await client.run({
+  agent: 'codebuff/base@0.0.16',
+  prompt: 'Refactor the codebase',
+  signal: controller.signal,
+})
+
+if (result.output.type === 'error' && result.output.message === 'Aborted') {
+  console.log('Run was cancelled')
+}
+```
+
+## Type Definitions
+
+```typescript
+export type RunOptions = {
+  agent: string | AgentDefinition
+  prompt: string
+  params?: Record<string, any>
+  previousRun?: RunState
+  handleEvent?: (event: PrintModeEvent) => void | Promise<void>
+  signal?: AbortSignal
+}
+
+export type RunState = {
+  sessionState?: SessionState
+  output: AgentOutput
+}
+
+export type AgentOutput =
+  | { type: 'text'; text: string }
+  | { type: 'error'; message: string; statusCode?: number }
+  | { type: 'data'; value: any }
+```

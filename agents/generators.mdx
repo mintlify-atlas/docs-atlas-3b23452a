@@ -1,0 +1,513 @@
+---
+title: 'Generators (handleSteps)'
+description: 'Mix AI and programmatic control with TypeScript generators'
+---
+
+## What are Generators?
+
+The `handleSteps` function is a TypeScript generator that gives you programmatic control over your agent's execution. It allows you to:
+
+- Call tools directly from code
+- Mix AI decision-making with programmatic logic
+- Control when the AI model runs
+- Process tool results before continuing
+- Implement complex workflows
+
+## Basic Syntax
+
+```typescript
+handleSteps: function* ({ agentState, prompt, params, logger }) {
+  // Your generator code here
+}
+```
+
+### Context Parameters
+
+- **`agentState`**: Current agent state including message history and output
+- **`prompt`**: Input prompt passed when spawning the agent
+- **`params`**: Additional parameters from inputSchema
+- **`logger`**: Logger instance for debugging (`logger.info()`, `logger.debug()`)
+
+## Yield Patterns
+
+The generator can yield three types of values:
+
+### 1. Tool Calls
+
+Yield an object to call a tool directly:
+
+```typescript
+const { toolResult } = yield {
+  toolName: 'read_files',
+  input: { paths: ['file.txt'] },
+  includeToolCall: false,  // Optional: hide from message history
+}
+```
+
+### 2. STEP
+
+Yield `'STEP'` to run the AI model once and generate a single assistant message:
+
+```typescript
+const { stepsComplete } = yield 'STEP'
+if (stepsComplete) {
+  // Agent finished
+  break
+}
+```
+
+### 3. STEP_ALL
+
+Yield `'STEP_ALL'` to run the AI model until it stops or uses the `end_turn` tool:
+
+```typescript
+yield 'STEP_ALL'  // Let AI run until completion
+```
+
+### 4. STEP_TEXT
+
+Yield text to add a message without calling tools:
+
+```typescript
+yield {
+  type: 'STEP_TEXT',
+  text: 'Processing completed successfully',
+}
+```
+
+## Return Value
+
+Every yield returns an object:
+
+```typescript
+const {
+  agentState,      // Updated agent state
+  toolResult,      // Results from tool call (if any)
+  stepsComplete,   // Whether agent finished
+} = yield ...
+```
+
+## Real Examples from Codebuff Source
+
+### Example 1: Pre-read Files, Then AI
+
+From `general-agent.ts` - Read files programmatically, then let AI take over:
+
+```typescript
+handleSteps: function* ({ params }) {
+  const filePaths = params?.filePaths as string[] | undefined
+
+  // Pre-read files if provided
+  if (filePaths && filePaths.length > 0) {
+    yield {
+      toolName: 'read_files',
+      input: { paths: filePaths },
+    }
+  }
+
+  // Run AI with context pruning before each step
+  while (true) {
+    yield {
+      toolName: 'spawn_agent_inline',
+      input: {
+        agent_type: 'context-pruner',
+        params: params ?? {},
+      },
+      includeToolCall: false,
+    }
+
+    const { stepsComplete } = yield 'STEP'
+    if (stepsComplete) break
+  }
+}
+```
+
+### Example 2: Call Tool, Process Results
+
+From `researcher-web.ts` - Call web search, extract results, add text:
+
+```typescript
+handleSteps: function* ({ prompt }) {
+  // Call web search tool
+  const { toolResult } = yield {
+    toolName: 'web_search',
+    input: { query: prompt || '', depth: 'standard' },
+    includeToolCall: false,
+  } satisfies ToolCall<'web_search'>
+
+  // Process results
+  const results = (toolResult
+    ?.filter((r) => r.type === 'json')
+    ?.map((r) => r.value)?.[0] ?? {}) as {
+      result: string | undefined
+      errorMessage: string | undefined
+    }
+
+  // Add processed text to conversation
+  yield {
+    type: 'STEP_TEXT',
+    text: results.result ?? results.errorMessage ?? '',
+  }
+}
+```
+
+### Example 3: Spawn Subagents, Read Files, Step AI
+
+From `file-picker.ts` - Complex workflow with subagents:
+
+```typescript
+handleSteps: function* ({ prompt, params }) {
+  // Spawn file-lister subagent
+  const { toolResult: fileListerResults } = yield {
+    toolName: 'spawn_agents',
+    input: {
+      agents: [
+        {
+          agent_type: 'file-lister',
+          prompt: prompt ?? '',
+          params: params ?? {},
+        },
+      ],
+    },
+  } satisfies ToolCall
+
+  const spawnResults = extractSpawnResults(fileListerResults)
+
+  // Collect paths from subagent output
+  const allPaths = new Set<string>()
+  let hasAnyResults = false
+
+  for (const result of spawnResults) {
+    const fileListText = extractLastMessageText(result)
+    if (fileListText) {
+      hasAnyResults = true
+      const paths = fileListText.split('\n').filter(Boolean)
+      for (const path of paths) {
+        allPaths.add(path)
+      }
+    }
+  }
+
+  // Handle errors
+  if (!hasAnyResults) {
+    const errorMessages = spawnResults
+      .map(extractErrorMessage)
+      .filter(Boolean)
+      .join('; ')
+    yield {
+      type: 'STEP_TEXT',
+      text: errorMessages
+        ? `Error from file-lister(s): ${errorMessages}`
+        : 'Error: Could not extract file list from spawned agent(s)',
+    } satisfies StepText
+    return
+  }
+
+  const paths = Array.from(allPaths)
+
+  // Read all collected files
+  yield {
+    toolName: 'read_files',
+    input: { paths },
+  }
+
+  // Let AI analyze and respond
+  yield 'STEP'
+
+  // Helper functions
+  function extractSpawnResults(results: any[] | undefined): any[] {
+    if (!results || results.length === 0) return []
+    const jsonResult = results.find((r) => r.type === 'json')
+    if (!jsonResult?.value) return []
+    const spawnedResults = Array.isArray(jsonResult.value)
+      ? jsonResult.value
+      : [jsonResult.value]
+    return spawnedResults.map((result: any) => result?.value).filter(Boolean)
+  }
+
+  function extractLastMessageText(agentOutput: any): string | null {
+    if (!agentOutput) return null
+    if (
+      agentOutput.type === 'lastMessage' &&
+      Array.isArray(agentOutput.value)
+    ) {
+      for (let i = agentOutput.value.length - 1; i >= 0; i--) {
+        const message = agentOutput.value[i]
+        if (message.role === 'assistant' && Array.isArray(message.content)) {
+          for (const part of message.content) {
+            if (part.type === 'text' && typeof part.text === 'string') {
+              return part.text
+            }
+          }
+        }
+      }
+    }
+    return null
+  }
+
+  function extractErrorMessage(agentOutput: any): string | null {
+    if (!agentOutput) return null
+    if (agentOutput.type === 'error') {
+      return agentOutput.message ?? agentOutput.value ?? null
+    }
+    return null
+  }
+}
+```
+
+### Example 4: Capture AI Output
+
+From `editor.ts` - Capture AI-generated messages:
+
+```typescript
+handleSteps: function* ({ agentState: initialAgentState, logger }) {
+  const initialMessageHistoryLength =
+    initialAgentState.messageHistory.length
+  
+  // Let AI run once
+  const { agentState } = yield 'STEP'
+  const { messageHistory } = agentState
+
+  // Extract new messages generated by AI
+  const newMessages = messageHistory.slice(initialMessageHistoryLength)
+
+  // Set structured output with captured messages
+  yield {
+    toolName: 'set_output',
+    input: {
+      output: {
+        messages: newMessages,
+      },
+    },
+    includeToolCall: false,
+  }
+}
+```
+
+### Example 5: Continuous Loop with Context Management
+
+From `base2.ts` - Run pruning before each step:
+
+```typescript
+handleSteps: function* ({ params }) {
+  while (true) {
+    // Run context-pruner before each step
+    yield {
+      toolName: 'spawn_agent_inline',
+      input: {
+        agent_type: 'context-pruner',
+        params: params ?? {},
+      },
+      includeToolCall: false,
+    } as any
+
+    const { stepsComplete } = yield 'STEP'
+    if (stepsComplete) break
+  }
+}
+```
+
+### Example 6: Extract and Process Structured Output
+
+From `thinker.ts` - Process AI output and clean it:
+
+```typescript
+handleSteps: function* () {
+  const { agentState } = yield 'STEP'
+
+  // Find the last assistant message
+  const lastAssistantMessage = [...agentState.messageHistory]
+    .reverse()
+    .find((m) => m.role === 'assistant')
+
+  if (!lastAssistantMessage) {
+    const errorMsg = 'Error: No assistant message found'
+    yield {
+      toolName: 'set_output',
+      input: { message: errorMsg },
+    }
+    return
+  }
+
+  // Extract text content
+  const content = lastAssistantMessage.content
+  let textContent = ''
+  if (typeof content === 'string') {
+    textContent = content
+  } else if (Array.isArray(content)) {
+    textContent = content
+      .filter((part) => part.type === 'text')
+      .map((part) => part.text)
+      .join('')
+  }
+
+  // Remove <think> tags
+  const cleanedText = textContent
+    .replace(/<think>[\s\S]*?<\/think>/g, '')
+    .trim()
+
+  // Set cleaned output
+  yield {
+    toolName: 'set_output',
+    input: { message: cleanedText },
+    includeToolCall: false,
+  }
+}
+```
+
+## Common Patterns
+
+### Pre-process, AI, Post-process
+
+```typescript
+handleSteps: function* ({ params, logger }) {
+  logger.info('Starting pre-processing')
+  
+  // Pre-process: prepare data
+  yield {
+    toolName: 'read_files',
+    input: { paths: params.files },
+  }
+
+  // AI: let the model work
+  yield 'STEP_ALL'
+
+  // Post-process: format output
+  logger.info('Finalizing output')
+  yield {
+    toolName: 'set_output',
+    input: {
+      output: { status: 'complete' },
+    },
+  }
+}
+```
+
+### Conditional Tool Execution
+
+```typescript
+handleSteps: function* ({ params }) {
+  if (params?.needsResearch) {
+    yield {
+      toolName: 'web_search',
+      input: { query: params.query, depth: 'deep' },
+    }
+  }
+  
+  if (params?.needsFiles) {
+    yield {
+      toolName: 'read_files',
+      input: { paths: params.files },
+    }
+  }
+
+  yield 'STEP_ALL'
+}
+```
+
+### Error Handling
+
+```typescript
+handleSteps: function* ({ prompt, logger }) {
+  const { toolResult } = yield {
+    toolName: 'web_search',
+    input: { query: prompt || '' },
+  }
+
+  const result = toolResult?.[0]?.value as { result?: string; errorMessage?: string }
+  
+  if (result?.errorMessage) {
+    logger.error('Search failed:', result.errorMessage)
+    yield {
+      type: 'STEP_TEXT',
+      text: `Search failed: ${result.errorMessage}`,
+    }
+    return
+  }
+
+  yield {
+    type: 'STEP_TEXT',
+    text: result?.result ?? 'No results found',
+  }
+}
+```
+
+### Parallel Agent Spawning
+
+```typescript
+handleSteps: function* ({ prompt }) {
+  // Spawn multiple agents in parallel
+  const { toolResult } = yield {
+    toolName: 'spawn_agents',
+    input: {
+      agents: [
+        { agent_type: 'file-picker', prompt: 'Find related files' },
+        { agent_type: 'code-searcher', prompt: 'Search for patterns' },
+        { agent_type: 'researcher-web', prompt: 'Find documentation' },
+      ],
+    },
+  }
+
+  // Process results from all agents
+  // ...
+
+  yield 'STEP'
+}
+```
+
+## Type Safety
+
+Use TypeScript for full type safety:
+
+```typescript
+import type { AgentStepContext, ToolCall } from './types/agent-definition'
+
+handleSteps: function* ({ agentState, prompt, params, logger }: AgentStepContext) {
+  // Type-safe tool call
+  const { toolResult } = yield {
+    toolName: 'read_files',
+    input: { paths: ['file.txt'] },
+  } satisfies ToolCall<'read_files'>
+  
+  // Type-safe parameters
+  const filePaths = params?.filePaths as string[] | undefined
+}
+```
+
+## Best Practices
+
+1. **Use generators for complex workflows** - Simple agents don't need handleSteps
+2. **Mix AI and code strategically** - Use code for deterministic steps, AI for complex decisions
+3. **Hide internal tool calls** - Use `includeToolCall: false` for implementation details
+4. **Log important steps** - Help with debugging and monitoring
+5. **Handle errors gracefully** - Check tool results for errors
+6. **Type your parameters** - Cast `params` to expected types
+7. **Return early on errors** - Don't continue if something fails
+
+## When to Use Generators
+
+Use `handleSteps` when you need:
+
+- **Pre-processing**: Read files, prepare data before AI runs
+- **Post-processing**: Format output, extract specific data
+- **Multi-step workflows**: Spawn agents, process results, continue
+- **Conditional logic**: Different behavior based on input
+- **Error handling**: Graceful fallbacks and retries
+- **Context management**: Clean up or optimize context between steps
+
+Don't use generators for:
+
+- Simple single-step agents
+- Agents that just call one tool
+- When AI should have full control
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Spawning Subagents" icon="sitemap" href="/agents/spawning-subagents">
+    Learn how to compose multiple agents
+  </Card>
+  <Card title="Agent Definition" icon="book" href="/agents/agent-definition">
+    Full reference for all agent properties
+  </Card>
+</CardGroup>

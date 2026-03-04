@@ -1,0 +1,622 @@
+---
+title: CLI Workflows
+description: Common workflows and best practices for using the Codebuff CLI effectively
+---
+
+Learn how to use the Codebuff CLI effectively with these common workflows and best practices. These patterns will help you get the most out of AI-powered development.
+
+## Interactive Coding Sessions
+
+### Starting a New Feature
+
+When beginning work on a new feature, follow this workflow:
+
+<Steps>
+  <Step title="Start in your project directory">
+    Navigate to your project:
+    
+    ```bash
+    cd my-project
+    ```
+  </Step>
+  
+  <Step title="Launch Codebuff">
+    Start the CLI:
+    
+    ```bash
+    codebuff
+    ```
+    
+    Or with an initial prompt:
+    
+    ```bash
+    codebuff "I need to add user authentication"
+    ```
+  </Step>
+  
+  <Step title="Describe your goal">
+    Give the agent context about what you want to build:
+    
+    ```
+    Add JWT-based authentication to the API. Users should be able to register,
+    login, and access protected endpoints with bearer tokens.
+    ```
+  </Step>
+  
+  <Step title="Iterate and refine">
+    Review the agent's changes and provide feedback:
+    
+    ```
+    Add token expiration after 24 hours
+    ```
+    
+    ```
+    Add unit tests for the auth middleware
+    ```
+  </Step>
+  
+  <Step title="Test the changes">
+    Use bash commands to test:
+    
+    ```bash
+    !npm test
+    !npm run dev
+    ```
+  </Step>
+</Steps>
+
+### Debugging Issues
+
+When you encounter a bug:
+
+<Steps>
+  <Step title="Describe the problem">
+    Include symptoms and context:
+    
+    ```
+    The login endpoint returns 500 when the password is incorrect.
+    It should return 401 with an error message.
+    ```
+  </Step>
+  
+  <Step title="Share error messages">
+    Paste error output directly:
+    
+    ```
+    Error: Cannot read property 'hash' of undefined
+        at compare (/src/auth.js:45:23)
+    ```
+  </Step>
+  
+  <Step title="Let the agent investigate">
+    The agent will:
+    - Read relevant files
+    - Identify the root cause
+    - Propose a fix
+    - Make the necessary changes
+  </Step>
+  
+  <Step title="Verify the fix">
+    Test that the issue is resolved:
+    
+    ```bash
+    !npm test
+    ```
+  </Step>
+</Steps>
+
+### Refactoring Code
+
+For large refactoring tasks, use MAX mode:
+
+```bash
+codebuff --max
+```
+
+Then describe the refactoring:
+
+```
+Refactor the database connection logic to use connection pooling.
+The current implementation creates a new connection for each query.
+```
+
+**Refactoring best practices:**
+
+- Start with a clear description of what you want to change and why
+- Let the agent analyze the current structure first
+- Request tests before making changes to ensure behavior preservation
+- Review changes incrementally rather than accepting everything at once
+
+## Creating and Testing Custom Agents
+
+### Initial Setup
+
+<Steps>
+  <Step title="Initialize project">
+    Create the agent directory structure:
+    
+    ```bash
+    codebuff
+    /init
+    ```
+    
+    This creates:
+    - `knowledge.md` - Project context
+    - `.agents/` - Agent directory
+    - `.agents/types/` - TypeScript types
+  </Step>
+  
+  <Step title="Fill in knowledge.md">
+    Add project-specific information:
+    
+    ```markdown
+    # Project knowledge
+    
+    ## Quickstart
+    - Setup: `npm install`
+    - Dev: `npm run dev`
+    - Test: `npm test`
+    
+    ## Architecture
+    - Key directories: `/src/api`, `/src/models`, `/src/utils`
+    - Data flow: API → Controller → Service → Repository
+    
+    ## Conventions
+    - Use async/await, not callbacks
+    - All functions should have JSDoc comments
+    - Prefer functional programming patterns
+    ```
+  </Step>
+  
+  <Step title="Create your first agent">
+    Ask Codebuff to help you create an agent:
+    
+    ```
+    Create a custom agent that reviews pull requests and checks for:
+    - Missing unit tests
+    - Hardcoded credentials
+    - Console.log statements
+    - Missing error handling
+    ```
+  </Step>
+</Steps>
+
+### Testing Custom Agents
+
+Test agents without publishing:
+
+<Steps>
+  <Step title="Restart CLI">
+    Custom agents are loaded on startup:
+    
+    ```bash
+    # Exit current session
+    /exit
+    
+    # Restart
+    codebuff
+    ```
+  </Step>
+  
+  <Step title="Invoke your agent">
+    Use the `@` syntax:
+    
+    ```
+    @my-agent Review the authentication code for security issues
+    ```
+  </Step>
+  
+  <Step title="Iterate on the agent">
+    Edit the agent file:
+    
+    ```bash
+    # Open in your editor
+    code .agents/my-agent.ts
+    ```
+    
+    Make changes, then restart the CLI to reload.
+  </Step>
+  
+  <Step title="Check logs">
+    If something goes wrong:
+    
+    ```bash
+    tail -f ~/.config/codebuff/cli.log
+    ```
+  </Step>
+</Steps>
+
+### Debugging Agent Issues
+
+Common issues and solutions:
+
+<AccordionGroup>
+  <Accordion title="Agent not appearing" icon="ghost">
+    **Symptoms:** Your agent doesn't show up when typing `@`
+    
+    **Checklist:**
+    - Is the file in `.agents/` directory?
+    - Does it export `default` or named export `agent`?
+    - Is the `id` field unique?
+    - Did you restart the CLI after creating it?
+    
+    **Check logs:**
+    ```bash
+    codebuff --clear-logs
+    # Then check ~/.config/codebuff/cli.log
+    ```
+  </Accordion>
+  
+  <Accordion title="Agent errors during execution" icon="triangle-exclamation">
+    **Symptoms:** Agent starts but fails with errors
+    
+    **Common causes:**
+    - Invalid tool calls in the agent definition
+    - Incorrect instructions format
+    - Missing required fields
+    
+    **Debug:**
+    1. Check the error message in the chat
+    2. Review agent definition against the TypeScript types
+    3. Simplify the agent to isolate the issue
+  </Accordion>
+  
+  <Accordion title="Agent behavior not as expected" icon="circle-question">
+    **Symptoms:** Agent runs but doesn't do what you want
+    
+    **Solutions:**
+    - Make instructions more specific and detailed
+    - Add examples of desired behavior
+    - Use `<think>` blocks to see agent reasoning
+    - Adjust the system prompt
+    - Try a different model (switch to MAX mode)
+  </Accordion>
+</AccordionGroup>
+
+## Publishing Agents to the Store
+
+Share your agents with the community:
+
+<Steps>
+  <Step title="Prepare your agent">
+    Ensure your agent has:
+    
+    ```typescript
+    export const agent: AgentDefinition = {
+      id: 'my-agent',
+      displayName: 'My Agent',
+      description: 'Clear description of what it does',
+      publisher: 'your-username',
+      version: '1.0.0',
+      instructions: `Detailed instructions...`,
+      // ... other fields
+    }
+    ```
+    
+    <Warning>
+      Don't include sensitive information like API keys or internal URLs in published agents.
+    </Warning>
+  </Step>
+  
+  <Step title="Test thoroughly">
+    Test your agent with various inputs:
+    
+    ```
+    @my-agent Test case 1
+    @my-agent Test case 2
+    @my-agent Edge case
+    ```
+  </Step>
+  
+  <Step title="Publish">
+    Use the publish command:
+    
+    ```bash
+    /publish my-agent
+    ```
+    
+    Or publish multiple agents:
+    
+    ```bash
+    /publish agent-1 agent-2
+    ```
+  </Step>
+  
+  <Step title="Verify publication">
+    Check the success message:
+    
+    ```
+    ✅ Successfully published:
+      - My Agent (username/my-agent@1.0.0)
+    ```
+    
+    Your agent is now available in the public agent store.
+  </Step>
+  
+  <Step title="Update as needed">
+    To publish updates:
+    
+    1. Increment the `version` field
+    2. Make your changes
+    3. Run `/publish` again
+  </Step>
+</Steps>
+
+### Publisher Setup
+
+Before you can publish, you need a publisher account:
+
+1. Visit https://codebuff.com/publishers
+2. Create a new publisher profile
+3. Copy your publisher ID
+4. Add it to your agent's `publisher` field
+
+```typescript
+export const agent: AgentDefinition = {
+  publisher: 'your-publisher-id',
+  // ... rest of agent
+}
+```
+
+## Best Practices
+
+### Communication
+
+<Card title="Be Specific" icon="bullseye">
+  Provide clear, specific instructions:
+  
+  **Good:**
+  ```
+  Add input validation to the login form. Email should match RFC 5322,
+  password should be at least 8 characters with one number and one special character.
+  Display inline error messages below each field.
+  ```
+  
+  **Less effective:**
+  ```
+  Add validation to the login form
+  ```
+</Card>
+
+<Card title="Provide Context" icon="map">
+  Help the agent understand your project:
+  
+  - Fill out `knowledge.md` with project details
+  - Mention relevant files or modules
+  - Describe architectural constraints
+  - Share coding conventions
+</Card>
+
+<Card title="Iterate Incrementally" icon="arrows-spin">
+  Break large tasks into steps:
+  
+  1. "First, create the database schema"
+  2. "Now add the API endpoints"
+  3. "Add input validation"
+  4. "Add error handling"
+  5. "Finally, add tests"
+</Card>
+
+### Organization
+
+<Card title="Use Agent Modes Strategically" icon="sliders">
+  Choose the right mode for the task:
+  
+  - **FREE:** Quick questions, simple edits, documentation
+  - **DEFAULT:** Most coding tasks, bug fixes, features
+  - **MAX:** Complex refactoring, architecture changes, thorough reviews
+  - **PLAN:** Strategic planning, design decisions, breaking down large projects
+</Card>
+
+<Card title="Keep Conversations Focused" icon="bullseye-arrow">
+  Start a new conversation when switching contexts:
+  
+  ```bash
+  /new
+  ```
+  
+  This helps the agent:
+  - Focus on the current task
+  - Avoid confusion from unrelated history
+  - Load relevant context more efficiently
+</Card>
+
+<Card title="Leverage Bash Integration" icon="terminal">
+  Run tests and checks during development:
+  
+  ```bash
+  !npm test
+  !npm run lint
+  !git status
+  !npm run build
+  ```
+  
+  This keeps you in the flow without switching windows.
+</Card>
+
+### Code Quality
+
+<Card title="Request Tests" icon="vial">
+  Always ask for tests with new functionality:
+  
+  ```
+  Add the user registration endpoint and include unit tests
+  ```
+</Card>
+
+<Card title="Review Before Accepting" icon="eye">
+  Use the review feature for important changes:
+  
+  ```bash
+  /review Check this pull request for security issues and best practices
+  ```
+</Card>
+
+<Card title="Use Knowledge Files" icon="book">
+  Maintain `knowledge.md` with:
+  - Architectural decisions
+  - Coding standards
+  - Common patterns
+  - Things to avoid
+  
+  Agents automatically read this file for context.
+</Card>
+
+## Advanced Workflows
+
+### Multi-File Refactoring
+
+For changes across many files:
+
+<Steps>
+  <Step title="Switch to MAX mode">
+    ```bash
+    /mode:max
+    ```
+  </Step>
+  
+  <Step title="Describe the scope">
+    ```
+    Refactor the codebase to use TypeScript instead of JavaScript.
+    Start with the core modules in /src/core, then move to /src/api.
+    Add proper type definitions for all functions.
+    ```
+  </Step>
+  
+  <Step title="Review incrementally">
+    As files are changed, review in batches before continuing.
+  </Step>
+  
+  <Step title="Test at each stage">
+    ```bash
+    !npm run typecheck
+    !npm test
+    ```
+  </Step>
+</Steps>
+
+### Working with Images
+
+For UI implementation:
+
+<Steps>
+  <Step title="Attach the design">
+    ```bash
+    /image design.png
+    ```
+  </Step>
+  
+  <Step title="Describe requirements">
+    ```
+    Implement this design using React and Tailwind CSS.
+    Make it responsive with mobile breakpoints at 768px.
+    Use the color palette from our design system.
+    ```
+  </Step>
+  
+  <Step title="Iterate on details">
+    ```
+    Adjust the spacing to match the design more closely
+    ```
+    
+    ```
+    Make the hover states more subtle
+    ```
+  </Step>
+</Steps>
+
+### Automating Repetitive Tasks
+
+Create agents for common tasks:
+
+```typescript
+// .agents/pr-reviewer.ts
+export const agent: AgentDefinition = {
+  id: 'pr-reviewer',
+  displayName: 'PR Reviewer',
+  description: 'Reviews pull requests for common issues',
+  publisher: 'myteam',
+  instructions: `
+    You are a code reviewer. Check for:
+    - Security vulnerabilities
+    - Missing error handling
+    - Hardcoded values that should be config
+    - Missing tests
+    - Console.log statements
+    - Incorrect TypeScript types
+    
+    Provide actionable feedback with specific line references.
+  `,
+}
+```
+
+Use it consistently:
+
+```
+@pr-reviewer Review these changes before I open the PR
+```
+
+### Continuous Learning
+
+Build a knowledge base:
+
+```markdown
+# knowledge.md
+
+## Past Issues
+- 2024-01: Database connection pool exhaustion - always set maxConnections
+- 2024-02: CORS issues with auth - remember to set credentials: true
+
+## Performance Notes
+- The image processing endpoint is slow - consider background jobs
+- Database queries in loops - always batch with Promise.all
+
+## Code Style
+- Prefer async/await over .then()
+- Use Zod for runtime validation
+- Error messages should be user-facing
+```
+
+Update this file as you learn, and agents will benefit from the accumulated knowledge.
+
+## Common Pitfalls
+
+<Warning>
+  **Don't commit `.env` files** - Always add to `.gitignore`
+</Warning>
+
+<Warning>
+  **Don't blindly accept all changes** - Review code before committing, especially for security-sensitive areas
+</Warning>
+
+<Warning>
+  **Don't use MAX mode for simple tasks** - It's slower and uses more credits
+</Warning>
+
+<Warning>
+  **Don't skip testing** - Always run tests after agent makes changes
+</Warning>
+
+<Warning>
+  **Don't publish agents with secrets** - Remove API keys, internal URLs, and sensitive data
+</Warning>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Agent Development" icon="wand-magic-sparkles" href="/agents/creating-agents">
+    Deep dive into creating custom agents
+  </Card>
+  
+  <Card title="SDK Guide" icon="code" href="/sdk/overview">
+    Integrate Codebuff into your applications
+  </Card>
+  
+  <Card title="Commands Reference" icon="terminal" href="/cli/commands">
+    Complete list of all CLI commands
+  </Card>
+  
+  <Card title="Examples" icon="lightbulb" href="/examples/basic-usage">
+    See real-world usage examples
+  </Card>
+</CardGroup>

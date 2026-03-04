@@ -1,0 +1,374 @@
+---
+title: "Custom Tools"
+description: "Extend Codebuff agents with custom tools - learn how to create and use custom tool definitions"
+---
+
+## Creating Custom Tools
+
+Custom tools extend your agents' capabilities by allowing them to perform actions beyond the built-in tools. Tools are defined using Zod schemas for type safety and validation.
+
+## Complete Example: API Fetcher Tool
+
+Here's a full example of creating a custom tool that fetches data from APIs:
+
+```typescript
+import { z } from 'zod/v4'
+import { CodebuffClient, getCustomToolDefinition } from '@codebuff/sdk'
+import type { AgentDefinition } from '@codebuff/sdk'
+
+// Define the custom tool
+const apiFetcherTool = getCustomToolDefinition({
+  toolName: 'fetch_api_data',
+  description: 'Fetch data from an API endpoint with optional headers',
+  
+  // Define input schema with Zod
+  inputSchema: z.object({
+    url: z.string().url(),
+    method: z.enum(['GET', 'POST', 'PUT', 'DELETE']).default('GET'),
+    headers: z.record(z.string(), z.string()).optional(),
+    body: z.string().optional(),
+  }),
+  
+  // Provide example inputs to help the LLM understand usage
+  exampleInputs: [
+    { 
+      url: 'https://api.example.com/data', 
+      method: 'GET' 
+    },
+    {
+      url: 'https://api.example.com/users',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'John' }),
+    },
+  ],
+  
+  // Implement the tool's behavior
+  execute: async ({ url, method, headers, body }) => {
+    try {
+      const response = await fetch(url, { 
+        method, 
+        headers,
+        body: body ? body : undefined,
+      })
+      
+      const data = await response.text()
+      const status = response.status
+      
+      return [
+        {
+          type: 'json' as const,
+          value: {
+            status,
+            data: data.slice(0, 5000), // Limit response size
+            message: `API request to ${url} completed with status ${status}`,
+          },
+        },
+      ]
+    } catch (error) {
+      return [
+        {
+          type: 'json' as const,
+          value: {
+            error: error instanceof Error ? error.message : 'Unknown error',
+            message: `Failed to fetch from ${url}`,
+          },
+        },
+      ]
+    }
+  },
+})
+
+// Create an agent that uses this tool
+const apiAgent: AgentDefinition = {
+  id: 'api-tester',
+  displayName: 'API Tester',
+  model: 'anthropic/claude-4-sonnet-20250522',
+  toolNames: ['fetch_api_data'],
+  instructionsPrompt: 'Test API endpoints and analyze their responses.',
+}
+
+// Use the agent with the custom tool
+const client = new CodebuffClient({
+  apiKey: process.env.CODEBUFF_API_KEY,
+})
+
+const result = await client.run({
+  agent: 'api-tester',
+  agentDefinitions: [apiAgent],
+  customToolDefinitions: [apiFetcherTool],
+  prompt: 'Fetch data from https://api.github.com/repos/codebuffai/codebuff',
+  handleEvent: (event) => {
+    console.log('Event:', JSON.stringify(event, null, 2))
+  },
+})
+```
+
+## Tool Definition Structure
+
+The `getCustomToolDefinition` function accepts these parameters:
+
+```typescript
+const myTool = getCustomToolDefinition({
+  // Required: Unique tool name (avoid conflicts with built-in tools)
+  toolName: 'my_custom_tool',
+  
+  // Required: Description shown to the LLM
+  description: 'What this tool does and when to use it',
+  
+  // Required: Zod schema for input validation
+  inputSchema: z.object({
+    param1: z.string(),
+    param2: z.number().optional(),
+  }),
+  
+  // Optional: Example inputs to guide the LLM
+  exampleInputs: [
+    { param1: 'example', param2: 42 },
+  ],
+  
+  // Optional: Whether calling this tool ends the agent step (default: true)
+  endsAgentStep: true,
+  
+  // Required: Function that executes when tool is called
+  execute: async (params) => {
+    // Your tool logic here
+    return [
+      {
+        type: 'json', // or 'text'
+        value: { result: 'success' },
+      },
+    ]
+  },
+})
+```
+
+## Simple Tool Example: Calculator
+
+```typescript
+import { z } from 'zod/v4'
+import { getCustomToolDefinition } from '@codebuff/sdk'
+
+const calculatorTool = getCustomToolDefinition({
+  toolName: 'calculator',
+  description: 'Perform mathematical calculations',
+  inputSchema: z.object({
+    operation: z.enum(['add', 'subtract', 'multiply', 'divide']),
+    a: z.number(),
+    b: z.number(),
+  }),
+  exampleInputs: [
+    { operation: 'add', a: 5, b: 3 },
+    { operation: 'multiply', a: 4, b: 7 },
+  ],
+  execute: async ({ operation, a, b }) => {
+    let result: number
+    
+    switch (operation) {
+      case 'add':
+        result = a + b
+        break
+      case 'subtract':
+        result = a - b
+        break
+      case 'multiply':
+        result = a * b
+        break
+      case 'divide':
+        if (b === 0) {
+          return [
+            {
+              type: 'json' as const,
+              value: { error: 'Division by zero' },
+            },
+          ]
+        }
+        result = a / b
+        break
+    }
+    
+    return [
+      {
+        type: 'json' as const,
+        value: { 
+          operation,
+          a,
+          b,
+          result,
+        },
+      },
+    ]
+  },
+})
+```
+
+## Tool Return Types
+
+Tools can return different types of content:
+
+### JSON Response
+
+```typescript
+execute: async (params) => {
+  return [
+    {
+      type: 'json' as const,
+      value: {
+        key: 'value',
+        data: [1, 2, 3],
+      },
+    },
+  ]
+}
+```
+
+### Text Response
+
+```typescript
+execute: async (params) => {
+  return [
+    {
+      type: 'text' as const,
+      value: 'Plain text response here',
+    },
+  ]
+}
+```
+
+### Multiple Responses
+
+```typescript
+execute: async (params) => {
+  return [
+    {
+      type: 'text' as const,
+      value: 'First response',
+    },
+    {
+      type: 'json' as const,
+      value: { additional: 'data' },
+    },
+  ]
+}
+```
+
+## Advanced Example: File System Tool
+
+```typescript
+import { z } from 'zod/v4'
+import { getCustomToolDefinition } from '@codebuff/sdk'
+import * as fs from 'fs/promises'
+import * as path from 'path'
+
+const fileSystemTool = getCustomToolDefinition({
+  toolName: 'list_files',
+  description: 'List files in a directory with optional filtering',
+  inputSchema: z.object({
+    directory: z.string(),
+    extension: z.string().optional(),
+    recursive: z.boolean().default(false),
+  }),
+  exampleInputs: [
+    { directory: './src', extension: '.ts' },
+    { directory: './tests', recursive: true },
+  ],
+  execute: async ({ directory, extension, recursive }) => {
+    try {
+      const files = await fs.readdir(directory, { 
+        withFileTypes: true,
+        recursive,
+      })
+      
+      let filteredFiles = files.map(f => 
+        path.join(f.path || directory, f.name)
+      )
+      
+      if (extension) {
+        filteredFiles = filteredFiles.filter(f => 
+          f.endsWith(extension)
+        )
+      }
+      
+      return [
+        {
+          type: 'json' as const,
+          value: {
+            directory,
+            count: filteredFiles.length,
+            files: filteredFiles,
+          },
+        },
+      ]
+    } catch (error) {
+      return [
+        {
+          type: 'json' as const,
+          value: {
+            error: error instanceof Error ? error.message : 'Unknown error',
+          },
+        },
+      ]
+    }
+  },
+})
+```
+
+## Using Multiple Custom Tools
+
+You can provide multiple custom tools to an agent:
+
+```typescript
+const tool1 = getCustomToolDefinition({ /* ... */ })
+const tool2 = getCustomToolDefinition({ /* ... */ })
+const tool3 = getCustomToolDefinition({ /* ... */ })
+
+const agent: AgentDefinition = {
+  id: 'multi-tool-agent',
+  displayName: 'Multi-Tool Agent',
+  model: 'anthropic/claude-4-sonnet-20250522',
+  toolNames: [
+    'tool_1',
+    'tool_2', 
+    'tool_3',
+    'read_files', // Can also use built-in tools
+  ],
+  instructionsPrompt: 'Use the available tools to complete tasks.',
+}
+
+await client.run({
+  agent: 'multi-tool-agent',
+  agentDefinitions: [agent],
+  customToolDefinitions: [tool1, tool2, tool3],
+  prompt: 'Perform a complex task using multiple tools',
+})
+```
+
+## Tool Best Practices
+
+1. **Clear descriptions**: Write descriptions that explain what the tool does and when to use it
+2. **Example inputs**: Provide diverse examples to guide the LLM
+3. **Error handling**: Always handle errors gracefully and return informative messages
+4. **Input validation**: Use Zod schemas to validate inputs strictly
+5. **Response size**: Limit large responses to avoid context overflow
+6. **Type safety**: Use TypeScript and `as const` for type safety
+
+## Built-in Tools Reference
+
+These built-in tools are available to all agents:
+
+- `read_files` - Read file contents
+- `change_file` - Edit files
+- `run_terminal_command` - Execute shell commands
+- `code_search` - Search codebase with regex
+- `glob` - Find files by pattern
+- `list_directory` - List directory contents
+- `spawn_agents` - Spawn child agents
+- `add_message` - Add messages to conversation
+- `end_turn` - End the agent's turn
+- `set_output` - Set structured output
+
+## Next Steps
+
+- [Create custom agents](/examples/custom-agent) that use your tools
+- [Build multi-step workflows](/examples/multi-step-workflow) with tool coordination
+- See the [TypeScript SDK reference](https://www.npmjs.com/package/@codebuff/sdk) for more details

@@ -1,0 +1,96 @@
+---
+title: SDK Overview
+description: Official SDK for building with Codebuff AI agents
+---
+
+The Codebuff SDK provides a programmatic interface for running AI coding agents in your applications. Use it to automate code generation, refactoring, testing, and more.
+
+## When to Use the SDK
+
+**Use the SDK when you want to:**
+- Integrate Codebuff agents into your own applications
+- Automate coding tasks in CI/CD pipelines
+- Build custom development tools powered by AI
+- Create workflows that combine multiple agent runs
+- Programmatically control agent behavior
+
+**Use the CLI when you want to:**
+- Interactively chat with agents during development
+- Quickly iterate on code changes
+- Use agents in your terminal workflow
+
+## Installation
+
+```bash
+npm install @codebuff/sdk
+```
+
+## Prerequisites
+
+Create a Codebuff account and get your [Codebuff API key](https://www.codebuff.com/api-keys).
+
+## Basic Example
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+
+async function main() {
+  const client = new CodebuffClient({
+    apiKey: process.env.CODEBUFF_API_KEY,
+    cwd: process.cwd(),
+  })
+
+  // Run an agent
+  const result = await client.run({
+    agent: 'codebuff/base@0.0.16',
+    prompt: 'Create a simple calculator class',
+    handleEvent: (event) => {
+      console.log('Event:', event.type)
+    },
+  })
+
+  if (result.output.type === 'error') {
+    console.error('Failed:', result.output.message)
+  } else {
+    console.log('Success!')
+  }
+}
+
+main()
+```
+
+## Key Concepts
+
+### Agents
+Agents are AI models configured with specific instructions, tools, and capabilities. You can use:
+- **Published agents** from the [Codebuff store](https://codebuff.com/store) (e.g., `codebuff/base@0.0.16`)
+- **Custom agents** you define with `AgentDefinition`
+
+### Run State
+Each `client.run()` call returns a `RunState` object containing:
+- `sessionState`: Internal state for continuing conversations
+- `output`: The agent's final output or error
+
+### Events
+The `handleEvent` callback receives real-time events as the agent executes:
+- Tool calls and results
+- Text responses
+- Subagent spawns
+- Errors
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="CodebuffClient" icon="code" href="/sdk/client">
+    Learn about client configuration and methods
+  </Card>
+  <Card title="Running Agents" icon="play" href="/sdk/running-agents">
+    Master the client.run() method
+  </Card>
+  <Card title="Custom Agents" icon="robot" href="/sdk/custom-agents">
+    Create your own AI agents
+  </Card>
+  <Card title="Custom Tools" icon="wrench" href="/sdk/custom-tools">
+    Extend agents with custom capabilities
+  </Card>
+</CardGroup>

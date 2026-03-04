@@ -1,0 +1,106 @@
+---
+title: Introduction to Codebuff
+description: Open-source AI coding assistant that coordinates specialized agents to understand your project and make precise changes
+---
+
+Codebuff is an **open-source AI coding assistant** that edits your codebase through natural language instructions. Instead of using one model for everything, it coordinates specialized agents that work together to understand your project and make precise changes.
+
+Codebuff beats Claude Code at 61% vs 53% on [our evals](https://github.com/CodebuffAI/codebuff/tree/main/evals) across 175+ coding tasks over multiple open-source repos that simulate real-world tasks.
+
+## How it works
+
+When you ask Codebuff to "add authentication to my API," it might invoke:
+
+<Steps>
+  <Step title="File Picker Agent">
+    Scans your codebase to understand the architecture and find relevant files
+  </Step>
+  <Step title="Planner Agent">
+    Plans which files need changes and in what order
+  </Step>
+  <Step title="Editor Agent">
+    Makes precise edits to your code
+  </Step>
+  <Step title="Reviewer Agent">
+    Validates changes to ensure quality
+  </Step>
+</Steps>
+
+This multi-agent approach gives you better context understanding, more accurate edits, and fewer errors compared to single-model tools.
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="Multi-agent architecture" icon="users">
+    Specialized agents work together to tackle complex coding tasks with better context understanding
+  </Card>
+  <Card title="Custom workflows" icon="diagram-project">
+    TypeScript generators let you mix AI generation with programmatic control
+  </Card>
+  <Card title="Any model on OpenRouter" icon="rocket">
+    Use Claude, GPT, Qwen, DeepSeek, or any model on OpenRouter - not locked to one provider
+  </Card>
+  <Card title="Reusable agents" icon="store">
+    Compose existing published agents from the Agent Store to accelerate development
+  </Card>
+  <Card title="Production SDK" icon="code">
+    Build Codebuff into your applications with custom tools and CI/CD integration
+  </Card>
+  <Card title="Open source" icon="github">
+    Apache 2.0 licensed - inspect, modify, and contribute to the codebase
+  </Card>
+</CardGroup>
+
+## Why choose Codebuff
+
+**Custom workflows**: TypeScript generators let you mix AI generation with programmatic control. Agents can spawn subagents, branch on conditions, and run multi-step processes.
+
+**Any model on OpenRouter**: Unlike Claude Code which locks you into Anthropic's models, Codebuff supports any model available on [OpenRouter](https://openrouter.ai/models) - from Claude and GPT to specialized models like Qwen, DeepSeek, and others. Switch models for different tasks or use the latest releases without waiting for platform updates.
+
+**Reuse any published agent**: Compose existing [published agents](https://www.codebuff.com/store) to get a leg up. Codebuff agents are the new MCP!
+
+**SDK**: Build Codebuff into your applications. Create custom tools, integrate with CI/CD, or embed coding assistance into your products.
+
+## What you can do
+
+Just tell Codebuff what you want and it handles the rest:
+
+- "Fix the SQL injection vulnerability in user registration"
+- "Add rate limiting to all API endpoints"
+- "Refactor the database connection code for better performance"
+
+Codebuff will find the right files, make changes across your codebase, and run tests to make sure nothing breaks.
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get from zero to your first working example in 5 minutes
+  </Card>
+  <Card title="Installation" icon="download" href="/installation">
+    Install the CLI or SDK with detailed setup instructions
+  </Card>
+  <Card title="CLI Guide" icon="terminal" href="/cli/overview">
+    Learn how to use Codebuff from the command line
+  </Card>
+  <Card title="Agent Development" icon="code" href="/agents/creating-agents">
+    Build custom agents with specialized workflows
+  </Card>
+</CardGroup>
+
+## Community and support
+
+<CardGroup cols={2}>
+  <Card title="Documentation" icon="book" href="https://codebuff.com/docs">
+    Comprehensive guides and API references
+  </Card>
+  <Card title="Discord" icon="discord" href="https://codebuff.com/discord">
+    Join our community for help and discussions
+  </Card>
+  <Card title="GitHub Issues" icon="github" href="https://github.com/CodebuffAI/codebuff/issues">
+    Report bugs and request features
+  </Card>
+  <Card title="Contributing" icon="hand" href="https://github.com/CodebuffAI/codebuff/blob/main/CONTRIBUTING.md">
+    Learn how to contribute to Codebuff
+  </Card>
+</CardGroup>

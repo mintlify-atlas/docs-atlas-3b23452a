@@ -1,0 +1,575 @@
+---
+title: 'Agent Definition Reference'
+description: 'Complete reference for the AgentDefinition type'
+---
+
+## AgentDefinition Type
+
+The `AgentDefinition` interface defines the structure and behavior of a Codebuff agent.
+
+```typescript
+import type { AgentDefinition } from './types/agent-definition'
+```
+
+## Core Properties
+
+### id
+
+**Type:** `string` (required)
+
+Unique identifier for the agent. Must contain only lowercase letters, numbers, and hyphens.
+
+```typescript
+id: 'code-reviewer'
+id: 'file-picker'
+id: 'thinker'
+```
+
+### displayName
+
+**Type:** `string` (required)
+
+Human-readable name shown in the UI.
+
+```typescript
+displayName: 'Code Reviewer'
+displayName: 'Fletcher the File Fetcher'
+displayName: 'Theo the Theorizer'
+```
+
+### model
+
+**Type:** `ModelName` (required)
+
+AI model to use. Can be any model from [OpenRouter](https://openrouter.ai/models).
+
+```typescript
+// Anthropic models
+model: 'anthropic/claude-opus-4.6'
+model: 'anthropic/claude-sonnet-4.6'
+model: 'anthropic/claude-haiku-4.5'
+
+// OpenAI models
+model: 'openai/gpt-5.2'
+model: 'openai/gpt-5-mini'
+
+// Google models
+model: 'google/gemini-3.1-flash-lite-preview'
+model: 'google/gemini-2.5-pro'
+
+// Other models
+model: 'qwen/qwen3-coder-plus'
+model: 'deepseek/deepseek-chat-v3-0324'
+```
+
+### version
+
+**Type:** `string` (optional)
+
+Version string for the agent. Defaults to `'0.0.1'` and increments on each publish.
+
+```typescript
+version: '1.0.0'
+version: '2.1.3'
+```
+
+### publisher
+
+**Type:** `string` (optional, required for publishing)
+
+Publisher ID. Required if you want to publish the agent to the store.
+
+```typescript
+publisher: 'codebuff'
+publisher: 'mycompany'
+```
+
+## Reasoning Options
+
+### reasoningOptions
+
+**Type:** `object` (optional)
+
+Controls reasoning behavior for models that support it. See [OpenRouter reasoning docs](https://openrouter.ai/docs/use-cases/reasoning-tokens).
+
+```typescript
+reasoningOptions: {
+  enabled: true,
+  exclude: false,  // Don't remove reasoning from response
+  effort: 'high'   // 'high' | 'medium' | 'low' | 'minimal' | 'none'
+}
+
+// Or with max_tokens
+reasoningOptions: {
+  enabled: true,
+  max_tokens: 1000
+}
+```
+
+**Example from GPT-5 Agent:**
+
+```typescript
+// From general-agent.ts
+reasoningOptions: {
+  effort: 'high',
+}
+```
+
+### providerOptions
+
+**Type:** `object` (optional)
+
+Controls provider routing on OpenRouter. See [provider routing docs](https://openrouter.ai/docs/features/provider-routing).
+
+```typescript
+providerOptions: {
+  order: ['anthropic', 'openai'],        // Try providers in order
+  allow_fallbacks: true,                 // Use backup providers
+  require_parameters: false,             // Require parameter support
+  data_collection: 'deny',               // 'allow' | 'deny'
+  only: ['anthropic'],                   // Whitelist providers
+  ignore: ['some-provider'],             // Blacklist providers
+  quantizations: ['int4', 'int8'],      // Filter by quantization
+  sort: 'price',                         // 'price' | 'throughput' | 'latency'
+  max_price: {
+    prompt: 0.001,
+    completion: 0.002,
+  }
+}
+```
+
+## Tools and Subagents
+
+### toolNames
+
+**Type:** `(ToolName | string)[]` (optional)
+
+Tools the agent can use.
+
+```typescript
+toolNames: [
+  'read_files',           // Read file contents
+  'write_file',           // Create/overwrite files
+  'str_replace',          // Edit files with replacements
+  'code_search',          // Search code with regex
+  'find_files',           // Find files by pattern
+  'run_terminal_command', // Execute shell commands
+  'web_search',           // Search the web
+  'read_docs',            // Read documentation
+  'spawn_agents',         // Spawn other agents
+  'set_output',           // Set structured output
+]
+```
+
+**Example from Editor Agent:**
+
+```typescript
+// From editor.ts
+toolNames: ['write_file', 'str_replace', 'set_output']
+```
+
+### spawnableAgents
+
+**Type:** `string[]` (optional)
+
+Other agents this agent can spawn.
+
+```typescript
+// Using published agents (requires publisher/version)
+spawnableAgents: [
+  'codebuff/file-picker@0.0.1',
+  'codebuff/code-searcher@0.0.1',
+]
+
+// Using local agents (just the ID)
+spawnableAgents: [
+  'file-picker',
+  'code-searcher',
+  'thinker',
+]
+```
+
+**Example from Base Agent:**
+
+```typescript
+// From base2.ts
+spawnableAgents: [
+  'file-picker',
+  'code-searcher',
+  'directory-lister',
+  'glob-matcher',
+  'researcher-web',
+  'researcher-docs',
+  'commander',
+  'thinker',
+  'editor',
+  'code-reviewer',
+  'context-pruner',
+]
+```
+
+### mcpServers
+
+**Type:** `Record<string, MCPConfig>` (optional)
+
+MCP (Model Context Protocol) servers to connect. Names cannot contain `/`.
+
+```typescript
+mcpServers: {
+  'filesystem': {
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-filesystem', '/path/to/allowed'],
+  },
+  'github': {
+    command: 'npx',
+    args: ['-y', '@modelcontextprotocol/server-github'],
+    env: {
+      GITHUB_PERSONAL_ACCESS_TOKEN: process.env.GITHUB_TOKEN,
+    },
+  },
+}
+
+// Use specific MCP tools
+toolNames: [
+  'filesystem/read_file',    // Tool from filesystem server
+  'github/create_issue',     // Tool from github server
+]
+```
+
+## Input and Output
+
+### inputSchema
+
+**Type:** `object` (optional)
+
+Defines the input schema for spawning the agent.
+
+```typescript
+inputSchema: {
+  prompt: {
+    type: 'string',
+    description: 'A description of what info would be helpful'
+  },
+  params: {
+    type: 'object',
+    properties: {
+      filePaths: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'File paths to read'
+      },
+      maxResults: {
+        type: 'number',
+        description: 'Maximum number of results'
+      }
+    },
+    required: ['filePaths']
+  }
+}
+```
+
+**Example from File Picker:**
+
+```typescript
+// From file-picker.ts
+inputSchema: {
+  prompt: {
+    type: 'string',
+    description: 'A description of the files you need to find. Be more broad for better results.',
+  },
+  params: {
+    type: 'object',
+    properties: {
+      directories: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Optional list of paths to directories to look within.',
+      },
+    },
+    required: [],
+  },
+}
+```
+
+### outputMode
+
+**Type:** `'last_message' | 'all_messages' | 'structured_output'` (optional)
+
+How the agent outputs a response to its parent. Defaults to `'last_message'`.
+
+- **`last_message`**: Returns the last message from the agent
+- **`all_messages`**: Returns all messages including tool calls and results
+- **`structured_output`**: Returns a JSON object (use with `outputSchema`)
+
+```typescript
+outputMode: 'last_message'      // Most common
+outputMode: 'structured_output' // For JSON responses
+```
+
+### outputSchema
+
+**Type:** `JsonObjectSchema` (optional)
+
+JSON schema for structured output (when `outputMode` is `'structured_output'`).
+
+```typescript
+outputSchema: {
+  type: 'object',
+  properties: {
+    message: {
+      type: 'string',
+      description: 'The response message',
+    },
+    confidence: {
+      type: 'number',
+      description: 'Confidence score 0-1',
+    },
+  },
+  required: ['message'],
+}
+```
+
+**Example from Thinker Agent:**
+
+```typescript
+// From thinker.ts
+outputSchema: {
+  type: 'object',
+  properties: {
+    message: {
+      type: 'string',
+      description: "The response to the user's request",
+    },
+  },
+},
+outputMode: 'structured_output',
+```
+
+## Prompts
+
+### spawnerPrompt
+
+**Type:** `string` (optional)
+
+Describes when and why to spawn this agent. Critical if the agent is intended to be spawned by other agents.
+
+```typescript
+spawnerPrompt: 'Expert code editor that implements code changes based on the user\'s request. Make sure to read any files intended to be edited before spawning this agent.'
+```
+
+**Example from Editor:**
+
+```typescript
+// From editor.ts
+spawnerPrompt:
+  "Expert code editor that implements code changes based on the user's request. Do not specify an input prompt for this agent; it inherits the context of the entire conversation with the user. Make sure to read any files intended to be edited before spawning this agent as it cannot read files on its own.",
+```
+
+### systemPrompt
+
+**Type:** `string` (optional)
+
+Background information for the agent. Prefer using `instructionsPrompt` for main instructions.
+
+```typescript
+systemPrompt: `You are an expert code reviewer with deep understanding of software engineering principles. You analyze code for bugs, performance issues, and maintainability concerns.`
+```
+
+### instructionsPrompt
+
+**Type:** `string` (required for most agents)
+
+Main instructions for the agent. **This is the most important field** for shaping agent behavior.
+
+```typescript
+instructionsPrompt: `Instructions:
+1. Analyze the code changes carefully
+2. Identify potential issues
+3. Provide specific, actionable feedback
+4. Focus on the most important improvements
+`
+```
+
+**Example from Thinker:**
+
+```typescript
+// From thinker.ts
+instructionsPrompt: `
+You are a thinker agent. Use the <think> tag to think deeply about the user request.
+
+When satisfied, write out a brief response to the user's request. The parent agent will see your response -- no need to call any tools. DO NOT call the set_output tool, as that will be done for you.
+`.trim(),
+```
+
+### stepPrompt
+
+**Type:** `string` (optional)
+
+Prompt inserted at each agent step. Powerful but usually not necessary for smart models.
+
+```typescript
+stepPrompt: 'Continue working on the task. Think step by step.'
+```
+
+### includeMessageHistory
+
+**Type:** `boolean` (optional, defaults to `false`)
+
+Whether to include conversation history from the parent agent.
+
+```typescript
+includeMessageHistory: true  // Agent can see previous messages
+includeMessageHistory: false // Agent starts fresh
+```
+
+**Example from Editor:**
+
+```typescript
+// From editor.ts
+includeMessageHistory: true,  // Editor needs full context
+```
+
+### inheritParentSystemPrompt
+
+**Type:** `boolean` (optional, defaults to `false`)
+
+Whether to inherit the parent's system prompt instead of using this agent's own.
+
+```typescript
+inheritParentSystemPrompt: true  // Use parent's system prompt
+```
+
+**Use case:** Enable prompt caching by preserving the same system prompt prefix. Cannot be used together with `systemPrompt`.
+
+## handleSteps Generator
+
+### handleSteps
+
+**Type:** `Generator function` (optional)
+
+Programmatically control agent execution. See [Generators](/agents/generators) for full details.
+
+```typescript
+handleSteps: function* ({ agentState, prompt, params, logger }) {
+  // Yield tool calls
+  yield {
+    toolName: 'read_files',
+    input: { paths: ['file.txt'] }
+  }
+  
+  // Yield to run AI model
+  yield 'STEP_ALL'
+}
+```
+
+## Real Agent Examples
+
+### Minimal Agent
+
+```typescript
+const definition: AgentDefinition = {
+  id: 'simple-helper',
+  displayName: 'Simple Helper',
+  model: 'anthropic/claude-haiku-4.5',
+  instructionsPrompt: 'You are a helpful assistant.',
+}
+```
+
+### Research Agent
+
+```typescript
+// From researcher-web.ts
+const definition: AgentDefinition = {
+  id: 'researcher-web',
+  publisher: 'codebuff',
+  model: 'google/gemini-3.1-flash-lite-preview',
+  displayName: 'Web Researcher',
+  spawnerPrompt: 'Browses the web to find relevant information.',
+  inputSchema: {
+    prompt: {
+      type: 'string',
+      description: 'A question you would like answered',
+    },
+  },
+  outputMode: 'last_message',
+  includeMessageHistory: false,
+  toolNames: ['web_search'],
+  spawnableAgents: [],
+  systemPrompt: 'You are an expert researcher.',
+  instructionsPrompt: 'Provide comprehensive research on the user\'s prompt.',
+}
+```
+
+### Editor Agent with Context
+
+```typescript
+// From editor.ts
+const definition: AgentDefinition = {
+  id: 'editor',
+  publisher: 'codebuff',
+  model: 'anthropic/claude-opus-4.6',
+  displayName: 'Code Editor',
+  spawnerPrompt: 'Expert code editor that implements code changes.',
+  outputMode: 'structured_output',
+  toolNames: ['write_file', 'str_replace', 'set_output'],
+  includeMessageHistory: true,
+  inheritParentSystemPrompt: true,
+  instructionsPrompt: 'You are an expert code editor...',
+}
+```
+
+### Orchestrator Agent
+
+```typescript
+// From base2.ts (simplified)
+const definition: AgentDefinition = {
+  id: 'base2',
+  publisher: 'codebuff',
+  model: 'anthropic/claude-opus-4.6',
+  displayName: 'Buffy the Orchestrator',
+  inputSchema: {
+    prompt: {
+      type: 'string',
+      description: 'A coding task to complete',
+    },
+  },
+  outputMode: 'last_message',
+  includeMessageHistory: true,
+  toolNames: [
+    'spawn_agents',
+    'read_files',
+    'str_replace',
+    'write_file',
+    'write_todos',
+    'ask_user',
+  ],
+  spawnableAgents: [
+    'file-picker',
+    'code-searcher',
+    'researcher-web',
+    'thinker',
+    'editor',
+    'code-reviewer',
+  ],
+  systemPrompt: 'You are Buffy, a strategic assistant...',
+  instructionsPrompt: 'Act as a helpful assistant...',
+}
+```
+
+## Type Exports
+
+All types are available from the agent definition file:
+
+```typescript
+import type {
+  AgentDefinition,
+  AgentState,
+  AgentStepContext,
+  ToolCall,
+  ToolName,
+  GetToolParams,
+  ModelName,
+  Message,
+  Logger,
+} from './types/agent-definition'
+```

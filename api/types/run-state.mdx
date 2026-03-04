@@ -1,0 +1,342 @@
+---
+title: RunState
+description: State object returned from agent runs for continuation and output handling
+---
+
+The `RunState` type represents the complete state of an agent execution. It's returned from every `run()` call and can be passed back to continue conversations.
+
+## Type Definition
+
+```typescript
+type RunState = {
+  sessionState?: SessionState
+  output: AgentOutput
+}
+```
+
+---
+
+## Fields
+
+<ResponseField name="sessionState" type="SessionState">
+  Complete session state including message history, file context, and agent state. Pass this to `previousRun` to continue the conversation.
+</ResponseField>
+
+<ResponseField name="output" type="AgentOutput" required>
+  The agent's output from this run. This is a discriminated union based on the `type` field.
+</ResponseField>
+
+---
+
+## Session State
+
+The session state contains all context needed to continue a conversation.
+
+<ResponseField name="fileContext" type="ProjectFileContext" required>
+  Project files, knowledge files, agent templates, and file tree information
+</ResponseField>
+
+<ResponseField name="mainAgentState" type="AgentState" required>
+  State of the main agent including message history and execution context
+</ResponseField>
+
+### Agent State
+
+<ResponseField name="agentId" type="string" required>
+  Unique identifier for the agent (deprecated, use `runId` instead)
+</ResponseField>
+
+<ResponseField name="runId" type="string">
+  Current run identifier
+</ResponseField>
+
+<ResponseField name="agentType" type="string | null" required>
+  Type of agent (e.g., `base`, `base_max`, `file_picker`)
+</ResponseField>
+
+<ResponseField name="messageHistory" type="Message[]" required>
+  Array of all messages in the conversation
+</ResponseField>
+
+<ResponseField name="stepsRemaining" type="number" required>
+  Number of steps the agent can still take (affected by `maxAgentSteps`)
+</ResponseField>
+
+<ResponseField name="creditsUsed" type="number" required>
+  Total credits used in this session
+</ResponseField>
+
+<ResponseField name="directCreditsUsed" type="number" required>
+  Credits used directly by this agent (excluding subagents)
+</ResponseField>
+
+<ResponseField name="contextTokenCount" type="number" required>
+  Accurate token count from the LLM provider
+</ResponseField>
+
+<ResponseField name="agentContext" type="Record<string, Subgoal>" required>
+  Agent's internal context and subgoals
+</ResponseField>
+
+<ResponseField name="ancestorRunIds" type="string[]" required>
+  Array of ancestor run IDs (for nested agents)
+</ResponseField>
+
+<ResponseField name="subagents" type="AgentState[]" required>
+  State of any spawned subagents
+</ResponseField>
+
+<ResponseField name="childRunIds" type="string[]" required>
+  IDs of child agent runs
+</ResponseField>
+
+<ResponseField name="output" type="Record<string, any>">
+  Structured output from the agent
+</ResponseField>
+
+<ResponseField name="parentId" type="string">
+  ID of the parent agent (for subagents)
+</ResponseField>
+
+<ResponseField name="systemPrompt" type="string" required>
+  System prompt used by the agent
+</ResponseField>
+
+<ResponseField name="toolDefinitions" type="Record<string, { description?: string; inputSchema: {} }>" required>
+  Available tool definitions
+</ResponseField>
+
+---
+
+## Agent Output Types
+
+The `output` field is a discriminated union with four possible types:
+
+### Structured Output
+
+Returned when the agent produces structured data.
+
+<ResponseField name="type" type="'structuredOutput'" required>
+  Output type identifier
+</ResponseField>
+
+<ResponseField name="value" type="Record<string, any> | null" required>
+  Structured data returned by the agent
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  type: 'structuredOutput',
+  value: {
+    filesCreated: ['index.ts', 'types.ts'],
+    linesOfCode: 145
+  }
+}
+```
+
+---
+
+### Last Message
+
+Returns the last turn of the conversation (assistant and tool messages).
+
+<ResponseField name="type" type="'lastMessage'" required>
+  Output type identifier
+</ResponseField>
+
+<ResponseField name="value" type="any[]" required>
+  Array of messages from the last turn, including tool results
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  type: 'lastMessage',
+  value: [
+    {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'I will create the file' }]
+    },
+    {
+      role: 'tool',
+      toolName: 'write_file',
+      output: [{ type: 'json', value: { success: true } }]
+    }
+  ]
+}
+```
+
+---
+
+### All Messages
+
+Returns the complete message history.
+
+<ResponseField name="type" type="'allMessages'" required>
+  Output type identifier
+</ResponseField>
+
+<ResponseField name="value" type="any[]" required>
+  Complete array of all messages in the conversation
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  type: 'allMessages',
+  value: [
+    { role: 'user', content: [{ type: 'text', text: 'Create a file' }] },
+    { role: 'assistant', content: [{ type: 'text', text: 'Creating file...' }] }
+  ]
+}
+```
+
+---
+
+### Error
+
+Returned when the agent encounters an error.
+
+<ResponseField name="type" type="'error'" required>
+  Output type identifier
+</ResponseField>
+
+<ResponseField name="message" type="string" required>
+  Error message describing what went wrong
+</ResponseField>
+
+<ResponseField name="statusCode" type="number">
+  HTTP status code if the error is related to an API call
+</ResponseField>
+
+**Example:**
+```typescript
+{
+  type: 'error',
+  message: 'Failed to connect to API: Network timeout',
+  statusCode: 503
+}
+```
+
+---
+
+## Continuation Pattern
+
+Use the `RunState` to continue conversations:
+
+```typescript
+import { CodebuffClient } from '@codebuff/sdk'
+
+const client = new CodebuffClient({ apiKey: 'cb_xxx' })
+
+// First run
+const firstRun = await client.run({
+  agent: 'base',
+  prompt: 'Create a TypeScript file'
+})
+
+// Continue the conversation
+const secondRun = await client.run({
+  agent: 'base',
+  prompt: 'Now add tests for it',
+  previousRun: firstRun // Pass the previous state
+})
+
+// Chain multiple runs
+const thirdRun = await client.run({
+  agent: 'base',
+  prompt: 'Add documentation',
+  previousRun: secondRun
+})
+```
+
+---
+
+## Accessing Output
+
+```typescript
+const result = await client.run({
+  agent: 'base',
+  prompt: 'Create hello world'
+})
+
+if (result.output.type === 'error') {
+  console.error('Error:', result.output.message)
+  if (result.output.statusCode) {
+    console.error('Status code:', result.output.statusCode)
+  }
+} else if (result.output.type === 'structuredOutput') {
+  console.log('Agent output:', result.output.value)
+} else if (result.output.type === 'lastMessage') {
+  console.log('Last turn:', result.output.value)
+} else if (result.output.type === 'allMessages') {
+  console.log('Full history:', result.output.value)
+}
+```
+
+---
+
+## Inspecting State
+
+```typescript
+const result = await client.run({
+  agent: 'base',
+  prompt: 'Analyze the codebase'
+})
+
+if (result.sessionState) {
+  console.log('Messages:', result.sessionState.mainAgentState.messageHistory.length)
+  console.log('Steps remaining:', result.sessionState.mainAgentState.stepsRemaining)
+  console.log('Credits used:', result.sessionState.mainAgentState.creditsUsed)
+  console.log('Token count:', result.sessionState.mainAgentState.contextTokenCount)
+}
+```
+
+---
+
+## Persistence
+
+You can serialize and persist RunState to continue sessions later:
+
+```typescript
+import fs from 'fs'
+
+// Save state
+const result = await client.run({
+  agent: 'base',
+  prompt: 'Start a feature'
+})
+fs.writeFileSync('session.json', JSON.stringify(result))
+
+// Load and continue
+const savedState = JSON.parse(fs.readFileSync('session.json', 'utf8'))
+const continuedRun = await client.run({
+  agent: 'base',
+  prompt: 'Continue the feature',
+  previousRun: savedState
+})
+```
+
+---
+
+## State Overrides
+
+You can override certain fields when continuing:
+
+```typescript
+const secondRun = await client.run({
+  agent: 'base',
+  prompt: 'Continue',
+  previousRun: firstRun,
+  maxAgentSteps: 50,        // Override step limit
+  projectFiles: newFiles,   // Update project files
+  knowledgeFiles: newKnowledge  // Update knowledge
+})
+```
+
+These overrides are applied via `applyOverridesToSessionState()` which:
+- Deep clones the base session state
+- Updates specified fields
+- Recomputes derived data (file tree, token scores) when needed
+- Merges agent definitions and custom tools
