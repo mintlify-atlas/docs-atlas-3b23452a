@@ -1,0 +1,142 @@
+{
+  "projectType": "framework",
+  "projectName": "Codebuff",
+  "projectDescription": "Open-source AI coding framework with multi-agent orchestration and custom agent development",
+  "theme": "aspen",
+  "primaryColor": "#7c7c7c",
+  "lightColor": "#050505",
+  "darkColor": "#e3e3e3",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/architecture",
+              "concepts/agents",
+              "concepts/multi-agent-orchestration",
+              "concepts/tools"
+            ]
+          },
+          {
+            "group": "CLI Guide",
+            "pages": [
+              "cli/overview",
+              "cli/commands",
+              "cli/configuration",
+              "cli/workflows"
+            ]
+          },
+          {
+            "group": "SDK Guide",
+            "pages": [
+              "sdk/overview",
+              "sdk/client",
+              "sdk/running-agents",
+              "sdk/custom-agents",
+              "sdk/custom-tools",
+              "sdk/event-handling"
+            ]
+          },
+          {
+            "group": "Agent Development",
+            "pages": [
+              "agents/creating-agents",
+              "agents/agent-definition",
+              "agents/generators",
+              "agents/spawning-subagents",
+              "agents/publishing"
+            ]
+          },
+          {
+            "group": "Advanced",
+            "pages": [
+              "advanced/model-providers",
+              "advanced/credentials",
+              "advanced/file-system",
+              "advanced/error-handling"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "SDK",
+            "pages": [
+              "api/codebuff-client",
+              "api/run-options",
+              "api/agent-definition",
+              "api/custom-tool",
+              "api/tool-helpers"
+            ]
+          },
+          {
+            "group": "CLI",
+            "pages": [
+              "api/cli-commands"
+            ]
+          },
+          {
+            "group": "Types",
+            "pages": [
+              "api/types/events",
+              "api/types/run-state",
+              "api/types/messages"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Use Cases",
+            "pages": [
+              "examples/basic-usage",
+              "examples/custom-agent",
+              "examples/custom-tools",
+              "examples/multi-step-workflow",
+              "examples/git-automation"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-agent orchestration system",
+    "TypeScript-based custom agent definitions",
+    "CLI tool for interactive coding",
+    "SDK for embedding in applications",
+    "Custom tool creation",
+    "Support for any OpenRouter model",
+    "Agent marketplace integration",
+    "Programmatic workflow control with generators"
+  ],
+  "publicApiSurface": [
+    "CodebuffClient",
+    "run()",
+    "AgentDefinition",
+    "getCustomToolDefinition()",
+    "ToolHelpers",
+    "loadLocalAgents()",
+    "validateAgents()",
+    "buildUserMessageContent()",
+    "getFiles()",
+    "runTerminalCommand()",
+    "promptAiSdk()",
+    "getUserInfoFromApiKey()"
+  ]
+}
