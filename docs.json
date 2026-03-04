@@ -97,7 +97,8 @@
               "api/run-options",
               "api/agent-definition",
               "api/custom-tool",
-              "api/tool-helpers"
+              "api/tool-helpers",
+              "api/utilities"
             ]
           },
           {

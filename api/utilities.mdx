@@ -1,0 +1,377 @@
+---
+title: Utility Functions
+description: Additional utility functions exported by the Codebuff SDK
+---
+
+The Codebuff SDK exports several utility functions for advanced use cases.
+
+## Agent Loading
+
+### loadLocalAgents()
+
+Load custom agent definitions from local directories.
+
+```typescript
+import { loadLocalAgents } from '@codebuff/sdk'
+
+const result = await loadLocalAgents({
+  directories: ['./agents', './.agents'],
+  cwd: process.cwd()
+})
+
+console.log('Loaded agents:', Object.keys(result.agents))
+```
+
+<ParamField path="directories" type="string[]" required>
+  Array of directory paths to search for agent definitions
+</ParamField>
+
+<ParamField path="cwd" type="string" required>
+  Current working directory (base path for relative paths)
+</ParamField>
+
+**Returns**: `Promise<LoadLocalAgentsResult>`
+
+<ResponseField name="agents" type="LoadedAgents">
+  Object mapping agent IDs to loaded agent definitions
+</ResponseField>
+
+<ResponseField name="errors" type="AgentValidationError[]">
+  Array of validation errors encountered during loading
+</ResponseField>
+
+### loadMCPConfig()
+
+Load MCP (Model Context Protocol) server configuration from file.
+
+```typescript
+import { loadMCPConfig } from '@codebuff/sdk'
+
+const mcpConfig = await loadMCPConfig('./mcp-config.json')
+```
+
+<ParamField path="configPath" type="string" required>
+  Path to the MCP configuration file
+</ParamField>
+
+**Returns**: `Promise<LoadedMCPConfig | null>`
+
+Returns the loaded MCP configuration or `null` if the file doesn't exist.
+
+### validateAgents()
+
+Validate agent definitions against the schema.
+
+```typescript
+import { validateAgents } from '@codebuff/sdk'
+
+const result = validateAgents(agentDefinitions, {
+  cwd: process.cwd(),
+  strictMode: true
+})
+
+if (!result.valid) {
+  console.error('Validation errors:', result.errors)
+}
+```
+
+<ParamField path="agents" type="Record<string, AgentDefinition>" required>
+  Object mapping agent IDs to agent definitions
+</ParamField>
+
+<ParamField path="options" type="ValidateAgentsOptions">
+  Validation options
+</ParamField>
+
+**Returns**: `ValidationResult`
+
+<ResponseField name="valid" type="boolean">
+  Whether all agents passed validation
+</ResponseField>
+
+<ResponseField name="errors" type="AgentValidationError[]">
+  Array of validation errors if any
+</ResponseField>
+
+## File Operations
+
+### getFiles()
+
+Read multiple files from the filesystem with filtering.
+
+```typescript
+import { getFiles } from '@codebuff/sdk'
+
+const files = await getFiles({
+  filePaths: ['src/index.ts', 'package.json'],
+  cwd: process.cwd(),
+  fs: require('fs').promises
+})
+```
+
+<ParamField path="filePaths" type="string[]" required>
+  Array of file paths to read
+</ParamField>
+
+<ParamField path="cwd" type="string" required>
+  Current working directory
+</ParamField>
+
+<ParamField path="fs" type="CodebuffFileSystem" required>
+  Filesystem implementation
+</ParamField>
+
+<ParamField path="fileFilter" type="FileFilter">
+  Optional filter to classify files before reading
+</ParamField>
+
+**Returns**: `Promise<Record<string, string | null>>`
+
+Returns an object mapping file paths to their contents (or `null` if unreadable).
+
+### runTerminalCommand()
+
+Execute a terminal command and capture output.
+
+```typescript
+import { runTerminalCommand } from '@codebuff/sdk'
+
+const result = await runTerminalCommand({
+  command: 'npm test',
+  cwd: process.cwd()
+})
+
+console.log('Exit code:', result.exitCode)
+console.log('Output:', result.stdout)
+```
+
+<ParamField path="command" type="string" required>
+  Command to execute
+</ParamField>
+
+<ParamField path="cwd" type="string" required>
+  Working directory for command execution
+</ParamField>
+
+<ParamField path="timeout" type="number">
+  Timeout in milliseconds (default: 30000)
+</ParamField>
+
+**Returns**: `Promise<CommandResult>`
+
+<ResponseField name="exitCode" type="number">
+  Command exit code
+</ResponseField>
+
+<ResponseField name="stdout" type="string">
+  Standard output
+</ResponseField>
+
+<ResponseField name="stderr" type="string">
+  Standard error output
+</ResponseField>
+
+## Message Building
+
+### buildUserMessageContent()
+
+Build message content from various input types.
+
+```typescript
+import { buildUserMessageContent } from '@codebuff/sdk'
+
+const content = buildUserMessageContent('Hello, Codebuff!')
+// Or with images
+const contentWithImage = buildUserMessageContent([
+  { type: 'text', text: 'Analyze this image' },
+  { type: 'image', source: { type: 'base64', data: '...' } }
+])
+```
+
+<ParamField path="input" type="string | MessageContent[]" required>
+  Text string or array of content parts
+</ParamField>
+
+**Returns**: `MessageContent[]`
+
+Returns normalized message content array.
+
+## Advanced Utilities
+
+### getUserInfoFromApiKey()
+
+Retrieve user information from an API key.
+
+```typescript
+import { getUserInfoFromApiKey } from '@codebuff/sdk'
+
+const userInfo = await getUserInfoFromApiKey('your-api-key')
+console.log('User ID:', userInfo.userId)
+```
+
+<ParamField path="apiKey" type="string" required>
+  Codebuff API key
+</ParamField>
+
+**Returns**: `Promise<UserInfo>`
+
+<ResponseField name="userId" type="string">
+  User's unique identifier
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  User's email address
+</ResponseField>
+
+### Code Mapping (Tree-sitter)
+
+#### getFileTokenScores()
+
+Analyze file token relevance using tree-sitter.
+
+```typescript
+import { getFileTokenScores } from '@codebuff/sdk'
+
+const scores = await getFileTokenScores({
+  filePath: 'src/index.ts',
+  fileContent: sourceCode,
+  language: 'typescript'
+})
+```
+
+<ParamField path="filePath" type="string" required>
+  Path to the file being analyzed
+</ParamField>
+
+<ParamField path="fileContent" type="string" required>
+  File content to analyze
+</ParamField>
+
+<ParamField path="language" type="string" required>
+  Programming language (e.g., 'typescript', 'python')
+</ParamField>
+
+**Returns**: `Promise<FileTokenData>`
+
+Returns token scoring data for context optimization.
+
+#### setWasmDir()
+
+Set the directory for tree-sitter WASM files.
+
+```typescript
+import { setWasmDir } from '@codebuff/sdk'
+
+setWasmDir('./tree-sitter-wasm')
+```
+
+<ParamField path="dir" type="string" required>
+  Directory path containing WASM parser files
+</ParamField>
+
+## AI SDK Integration
+
+### promptAiSdk()
+
+Make AI completion requests using the AI SDK.
+
+```typescript
+import { promptAiSdk } from '@codebuff/sdk'
+
+const response = await promptAiSdk({
+  model: 'openai/gpt-4',
+  messages: [{ role: 'user', content: 'Hello!' }]
+})
+```
+
+### promptAiSdkStream()
+
+Stream AI completion responses.
+
+```typescript
+import { promptAiSdkStream } from '@codebuff/sdk'
+
+const stream = await promptAiSdkStream({
+  model: 'anthropic/claude-3.5-sonnet',
+  messages: [{ role: 'user', content: 'Write a story' }]
+})
+
+for await (const chunk of stream) {
+  process.stdout.write(chunk)
+}
+```
+
+### promptAiSdkStructured()
+
+Get structured output from AI models.
+
+```typescript
+import { promptAiSdkStructured } from '@codebuff/sdk'
+import { z } from 'zod'
+
+const result = await promptAiSdkStructured({
+  model: 'openai/gpt-4',
+  messages: [{ role: 'user', content: 'Extract person info' }],
+  schema: z.object({
+    name: z.string(),
+    age: z.number()
+  })
+})
+
+console.log(result.name, result.age)
+```
+
+## Error Handling Utilities
+
+### Error Type Checking
+
+```typescript
+import {
+  isRetryableStatusCode,
+  getErrorStatusCode,
+  sanitizeErrorMessage
+} from '@codebuff/sdk'
+
+if (isRetryableStatusCode(statusCode)) {
+  // Retry the request
+}
+
+const status = getErrorStatusCode(error)
+const safeMessage = sanitizeErrorMessage(error)
+```
+
+### Error Creators
+
+```typescript
+import {
+  createHttpError,
+  createAuthError,
+  createForbiddenError,
+  createPaymentRequiredError,
+  createServerError,
+  createNetworkError
+} from '@codebuff/sdk'
+
+throw createAuthError('Invalid API key')
+throw createPaymentRequiredError('Insufficient credits')
+```
+
+## Retry Configuration
+
+Constants for retry logic:
+
+```typescript
+import {
+  MAX_RETRIES_PER_MESSAGE,
+  RETRY_BACKOFF_BASE_DELAY_MS,
+  RETRY_BACKOFF_MAX_DELAY_MS,
+  RECONNECTION_MESSAGE_DURATION_MS,
+  RECONNECTION_RETRY_DELAY_MS
+} from '@codebuff/sdk'
+```
+
+## See Also
+
+- [CodebuffClient](/api/codebuff-client) - Main SDK client
+- [RunOptions](/api/run-options) - Run configuration
+- [ToolHelpers](/api/tool-helpers) - Built-in tool utilities
